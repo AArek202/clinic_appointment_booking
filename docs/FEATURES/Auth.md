@@ -10,10 +10,19 @@ Authentication is intentionally simple because it is not the focus of the task.
 
 # Roles
 
-Two roles exist:
+Three roles exist:
 
+ADMIN
 PATIENT
 DOCTOR
+
+Patients self-register. Doctors do not.
+
+An ADMIN is required to create doctors. Without that role, either anyone could register as a doctor, or doctors would exist only through seeds.
+
+Public registration creates a PATIENT only. The client must not be allowed to choose DOCTOR or ADMIN.
+
+An initial ADMIN can be seeded for local/development use.
 
 ---
 
@@ -21,7 +30,7 @@ DOCTOR
 
 Users should be able to:
 
-- register
+- register (patients only)
 - login
 - receive JWT
 - access protected endpoints
@@ -47,9 +56,13 @@ Patient-only:
 
 Doctor-only:
 
-- manage doctor schedule
+- manage their own schedule (including that schedule's slot duration)
 - manage blocked periods
 - view their analytics
+
+Admin-only:
+
+- create a doctor (user account + doctor profile)
 
 ---
 

@@ -148,7 +148,6 @@ Fields should include:
 Statuses:
 
 - Waiting
-- Notified
 - Assigned
 - Expired
 - Canceled

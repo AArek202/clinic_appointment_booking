@@ -19,6 +19,15 @@ A schedule contains:
 - weekday
 - start time
 - end time
+- slot_duration_minutes
+
+Allowed slot durations:
+
+- 15
+- 30
+- 60
+
+Different schedule rows for the same doctor may use different durations (for example 30 minutes on Sunday and 15 minutes on Monday).
 
 ---
 
@@ -43,13 +52,17 @@ Overlapping schedules for the same doctor/day should not be allowed.
 
 Availability must be generated from:
 
-weekly schedule
-+
-doctor slot duration
+weekly schedule (including that row's slot duration)
 -
 blocked periods
 -
 existing appointments
+
+Changing a schedule's slot duration must not modify historical appointments.
+
+Historical appointments retain their original start/end times.
+
+Availability and new bookings use the duration on the matching schedule row.
 
 ---
 

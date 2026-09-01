@@ -24,8 +24,8 @@ Available appointment slots.
 
 For each requested date:
 
-1. Find doctor's weekly schedule for that weekday.
-2. Generate slots based on doctor's configured duration.
+1. Find doctor's weekly schedule rows for that weekday.
+2. Generate slots from each matching schedule using that row's slot duration.
 3. Remove slots overlapping blocked periods.
 4. Remove slots already occupied by confirmed appointments.
 5. Return remaining slots.

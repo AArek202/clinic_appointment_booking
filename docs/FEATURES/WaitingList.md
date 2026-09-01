@@ -31,7 +31,7 @@ Recommended assumptions:
 
 Cancellation should enqueue:
 
-PROCESS_WAITING_LIST
+WAITING_LIST_PROCESS
 
 The HTTP request must not synchronously assign the next patient.
 

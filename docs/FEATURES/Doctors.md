@@ -2,60 +2,41 @@
 
 ## Goal
 
-Represent doctors and their configurable appointment slot duration.
+Represent doctors as clinic staff who have a profile and own weekly schedules.
+
+Doctors are created by an ADMIN. They do not self-register.
+
+Slot duration is not a doctor-level setting. It belongs on each schedule. See `docs/FEATURES/Schedules.md`.
 
 ---
 
-# Doctor Configuration
+# Doctor Profile
 
-Each doctor has a slot duration.
+A doctor is linked to a user account (`user_id` unique).
 
-Allowed values:
+Profile fields should include:
 
-- 15 minutes
-- 30 minutes
-- 60 minutes
-
-The duration determines how available appointment slots are generated.
-
-Example:
-
-Doctor works:
-
-10:00 → 12:00
-
-Duration:
-
-30 minutes
-
-Available slots:
-
-10:00
-10:30
-11:00
-11:30
+- specialization
+- achievements
 
 ---
 
 # Requirements
 
+Admin can:
+
+- create a doctor (user account with role DOCTOR + doctor profile)
+
 A doctor should be able to:
 
-- view their profile/configuration
-- configure slot duration
+- view their own profile
 
-Doctors must not modify another doctor's configuration.
+Doctors must not modify another doctor's profile.
 
 ---
 
-# Business Rules
+# Slot Duration
 
-Slot duration must be one of:
+Do not store slot duration on the doctor.
 
-15, 30, 60.
-
-Changing slot duration must not modify historical appointments.
-
-Historical appointments retain their original start/end times.
-
-The availability calculation uses the doctor's current configured slot duration.
+Each weekly schedule row has its own `slot_duration_minutes`. Availability and booking use that schedule's duration.

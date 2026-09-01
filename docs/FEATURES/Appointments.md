@@ -14,7 +14,7 @@ A patient provides:
 - appointment start time
 - appointment date
 
-The API determines the corresponding slot end time using the doctor's configured slot duration.
+The API determines the corresponding slot end time using the slot duration on the doctor's schedule for that weekday.
 
 ---
 
@@ -23,7 +23,7 @@ The API determines the corresponding slot end time using the doctor's configured
 Before booking:
 
 1. Doctor must exist.
-2. Requested slot must align with doctor's slot duration.
+2. Requested slot must align with the matching schedule's slot duration.
 3. Slot must fall inside doctor's working schedule.
 4. Slot must not overlap a blocked period.
 5. Slot must not already be booked.
@@ -119,7 +119,7 @@ Cancellation should:
 2. verify cancellation window
 3. mark appointment CANCELLED
 4. prevent reminder from firing
-5. enqueue waiting-list processing
+5. enqueue WAITING_LIST_PROCESS
 
 Waiting-list processing must happen asynchronously.
 

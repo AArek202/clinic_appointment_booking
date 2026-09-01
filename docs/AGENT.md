@@ -66,14 +66,14 @@ Do not introduce unnecessary architectural patterns.
 The implementation MUST include:
 
 - doctor weekly schedules
-- configurable slot duration
+- configurable slot duration on schedules
 - blocked dates/times
 - availability endpoint
 - appointment booking
 - appointment cancellation
 - 2-hour cancellation restriction
 - JWT authentication
-- patient/doctor roles
+- patient/doctor/admin roles
 - monthly doctor analytics
 - SQL-based analytics
 - database-level booking concurrency protection
@@ -233,6 +233,8 @@ Verify:
 [ ] Patient role works
 
 [ ] Doctor role works
+
+[ ] Admin can create doctors
 
 [ ] Doctor schedule works
 
