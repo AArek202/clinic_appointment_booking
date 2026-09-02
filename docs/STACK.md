@@ -10,6 +10,17 @@
 
 - PostgreSQL
 - TypeORM
+- `btree_gist` extension, required by the appointment overlap exclusion constraint
+
+## Date & Time
+
+- `CLINIC_TZ` environment variable defines the single clinic timezone
+- Luxon for timezone-aware schedule expansion in application code
+- PostgreSQL `AT TIME ZONE` for month bucketing inside the analytics query
+
+JavaScript's built-in `Date` cannot convert between a named IANA timezone and UTC
+without help, which is exactly what schedule expansion needs. Luxon is used only
+at that boundary, not spread through the codebase.
 
 ## Authentication
 
@@ -36,6 +47,8 @@
 
 - Docker
 - Docker Compose
+- nginx as a load balancer in front of two or more app replicas, so the
+  concurrency proof runs against the distributed setup the task describes
 
 ## API
 

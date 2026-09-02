@@ -4,12 +4,14 @@ You are implementing a Backend Developer technical task.
 
 Read these files before writing code:
 
-1. STACK.md
-2. ARCHITECTURE.md
-3. DEVELOPMENT.md
-4. DATABASE.md
-5. Relevant files under FEATURES/
-6. Relevant files under INFRASTRUCTURE/
+1. DECISIONS.md
+2. STACK.md
+3. ARCHITECTURE.md
+4. DEVELOPMENT.md
+5. DATABASE.md
+6. API.md
+7. Relevant files under FEATURES/
+8. Relevant files under INFRASTRUCTURE/
 
 ---
 
@@ -18,14 +20,20 @@ Read these files before writing code:
 When requirements conflict, use this priority:
 
 1. Explicit task requirements
-2. Database correctness and concurrency guarantees
-3. Security and authorization
-4. Business rules documented in FEATURES/
-5. ARCHITECTURE.md
-6. DEVELOPMENT.md
-7. Agent implementation preferences
+2. DECISIONS.md
+3. Database correctness and concurrency guarantees
+4. Security and authorization
+5. Business rules documented in FEATURES/
+6. ARCHITECTURE.md
+7. DEVELOPMENT.md
+8. Agent implementation preferences
 
 Never sacrifice correctness to preserve an architectural preference.
+
+DECISIONS.md records settled decisions together with the alternatives that were
+rejected and why. Do not silently re-open a settled decision. If implementation
+reveals that a decision is wrong, say so explicitly and update DECISIONS.md
+along with the affected docs.
 
 ---
 
@@ -77,14 +85,18 @@ The implementation MUST include:
 - monthly doctor analytics
 - SQL-based analytics
 - database-level booking concurrency protection
-- concurrency proof test
-- indexes for scale
+- concurrency proof test against multiple app replicas behind nginx
+- indexes for scale, justified with EXPLAIN ANALYZE against seeded data
+- seed script (~200 doctors, ~2M appointments)
 - waiting list
 - BullMQ/Redis
 - appointment reminders
 - cancellation-safe reminders
 - background waiting-list processing
+- reconciliation sweeper job
 - retry-safe jobs
+- injectable Clock for all time-dependent rules
+- single clinic timezone via CLINIC_TZ
 - database migrations
 - Docker Compose
 - tests
@@ -139,9 +151,10 @@ PostgreSQL must protect critical invariants.
 
 Especially:
 
-> One confirmed appointment per doctor/slot.
+> No two confirmed appointments may overlap for the same doctor.
 
-Never rely solely on a prior SELECT to determine whether a slot can be booked.
+Enforced by a partial GiST exclusion constraint. Never rely solely on a prior
+SELECT to determine whether a slot can be booked.
 
 ---
 
@@ -150,6 +163,12 @@ Never rely solely on a prior SELECT to determine whether a slot can be booked.
 Never assume a job executes exactly once.
 
 Every worker must be safe to retry.
+
+Enqueue only after the transaction commits. Job payloads carry identifiers, not
+state — workers re-derive every decision from the database.
+
+Idempotency is a unique constraint plus a conditional status update acted on by
+affected row count. Reading "already done?" and then writing "done" is a race.
 
 ---
 
@@ -264,7 +283,13 @@ Verify:
 
 [ ] Concurrency test proves exactly one booking
 
-[ ] Indexes exist
+[ ] Concurrency test runs against multiple replicas behind nginx
+
+[ ] Losing bookings return 409, not 500
+
+[ ] Reconciliation sweeper recovers a lost job
+
+[ ] Indexes exist, with EXPLAIN ANALYZE evidence against seeded data
 
 [ ] README documents decisions
 

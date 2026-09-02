@@ -57,12 +57,32 @@ Patient-only:
 Doctor-only:
 
 - manage their own schedule (including that schedule's slot duration)
-- manage blocked periods
+- manage their own blocked periods
 - view their analytics
 
 Admin-only:
 
 - create a doctor (user account + doctor profile)
+
+Admin-or-owning-doctor:
+
+- manage a doctor's schedule
+- manage a doctor's blocked periods
+- view a doctor's analytics
+
+## Ownership check
+
+Decided: schedule and block endpoints are addressed by doctor
+(`/doctors/:doctorId/schedules`) and guarded by one reusable rule:
+
+> the caller is ADMIN, or the caller is a DOCTOR whose `doctors.id` equals `:doctorId`.
+
+One check, implemented once, reused by schedules, blocks and analytics. This is
+why ADMIN was kept as a third role even though the brief mentions two: an admin
+has to create doctors somehow, and once the role exists it costs nothing to let
+it manage schedules too.
+
+Patients may read a doctor's availability without any ownership check.
 
 ---
 

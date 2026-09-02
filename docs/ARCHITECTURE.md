@@ -22,7 +22,7 @@ The project should remain easy for a junior developer to understand and explain 
 
 # Project Structure
 
-Recommended structure:
+Decided structure:
 
 src/
 ├── app.module.ts
@@ -77,16 +77,24 @@ src/
 │   ├── analytics.module.ts
 │   └── dto/
 │
+├── notifications/
+│   ├── notifications.repository.ts
+│   ├── notifications.module.ts
+│   └── dto/
+│
 ├── jobs/
 │   ├── jobs.module.ts
 │   ├── appointment-reminder.processor.ts
-│   └── waiting-list.processor.ts
+│   ├── waiting-list.processor.ts
+│   └── reconciliation.processor.ts
 │
 ├── database/
 │   ├── migrations/
+│   ├── seeds/
 │   └── database.module.ts
 │
 ├── common/
+│   ├── clock/
 │   ├── enums/
 │   ├── decorators/
 │   ├── filters/
@@ -197,6 +205,43 @@ For example:
 Repository must not import Controller.
 
 Service must not depend on HTTP request/response objects.
+
+## Avoiding a circular dependency between appointments and waiting-list
+
+Cancelling an appointment triggers waiting-list processing, and waiting-list
+processing creates an appointment. If `AppointmentsModule` and
+`WaitingListModule` import each other, `forwardRef` becomes necessary and the
+ownership of booking rules gets muddy.
+
+Decided: the **job processor orchestrates**. `waiting-list.processor.ts` reads the
+queue through `WaitingListService` and creates the appointment through a narrow
+method on `AppointmentsService`. The two feature modules never import each other.
+
+That processor lives in `ProcessorsModule`, which is imported only by the worker
+process. `JobsModule` registers the queues and `JobsService` (the producer) and
+is imported by both the API and the worker. Putting processors in `JobsModule`
+would make every API replica a job runner, so scaling HTTP capacity would
+silently double job concurrency — the coupling `docs/DECISIONS.md` #13 exists
+to prevent.
+
+```text
+JobsModule          (API + worker)   queues, JobsService
+ProcessorsModule    (worker only)    reminder, waiting-list, sweeper
+   ├── AppointmentsModule
+   ├── WaitingListModule
+   └── NotificationsModule
+```
+
+## Shared infrastructure modules
+
+`common/clock` exports an injectable `Clock` with a single `now()` method. Every
+time-dependent business rule — the 2-hour cancellation window, the 24-hour
+reminder offset, waiting-list expiry — reads time through it. Tests substitute a
+fixed clock. No service calls `new Date()` directly.
+
+`notifications/` owns one table and one repository, consumed by all three job
+processors. It centralises the "have we already done this?" check so idempotency
+is implemented once rather than per job type.
 
 ---
 

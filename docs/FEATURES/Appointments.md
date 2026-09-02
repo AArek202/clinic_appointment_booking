@@ -27,7 +27,11 @@ Before booking:
 3. Slot must fall inside doctor's working schedule.
 4. Slot must not overlap a blocked period.
 5. Slot must not already be booked.
-6. Patient must be authorized to book.
+6. Patient must not already hold an overlapping confirmed appointment.
+7. Patient must be authorized to book.
+
+Checks 5 and 6 are for error messages only. Both are also enforced by exclusion
+constraints, which are what actually hold under concurrency.
 
 ---
 
@@ -42,44 +46,45 @@ INSERT appointment
 ```
 This is unsafe because two requests can both observe the slot as available.
 
-The database must enforce the uniqueness invariant.
+The database must enforce the invariant.
 
-Preferred approach:
+Decided approach: a partial GiST **exclusion constraint** preventing overlapping
+CONFIRMED appointments for the same doctor. Full reasoning, including why a
+partial unique index on `(doctor_id, start_at)` is not sufficient for this
+schema, is in `docs/INFRASTRUCTURE/Concurrency.md`.
 
-Use a PostgreSQL unique constraint/index representing:
-
-doctor + slot start + active booking
-
-If PostgreSQL partial unique indexes are used, only CONFIRMED appointments should participate.
-
-The application should still perform availability checks for good error messages.
+The application still performs availability checks, for good error messages only.
 
 The database is the final authority.
 
-If the database rejects a conflicting insert:
+The insert is attempted and its failure handled. Never
+`SELECT`-then-decide-then-`INSERT`, because that gap is the race.
 
-return HTTP 409 Conflict.
+If the constraint rejects the insert (SQLSTATE `23P01`), return HTTP 409 Conflict.
 
 ---
 
 # Booking Transaction
 
-Booking should be atomic.
+Booking is atomic.
 
-Conceptually:
-
+```text
 BEGIN
-
-validate relevant data
-attempt to create appointment
-
-if database uniqueness violation:
-rollback
-return conflict
-
+  validate schedule, slot-grid alignment, blocks
+  INSERT appointment (status CONFIRMED, created_from DIRECT)
+  INSERT notifications row (type REMINDER, status PENDING,
+                            scheduled_at = start_at - 24h)
+  on exclusion_violation -> ROLLBACK, return 409
 COMMIT
 
-The exact implementation may use TypeORM transaction APIs.
+after commit:
+  enqueue delayed reminder job
+```
+
+The notification row is written **inside** the transaction; the BullMQ job is
+enqueued **after** commit. Reasoning is in
+`docs/INFRASTRUCTURE/BackgroundJobs.md` — the row is the source of truth and the
+queue is only the trigger, which is what lets the sweeper recover a lost enqueue.
 
 ---
 
@@ -90,6 +95,11 @@ A patient can cancel their own appointment.
 Cancellation is forbidden when:
 
 appointment_time - current_time < 2 hours
+
+"Current time" comes from an injected `Clock` provider, never from an inline
+`new Date()`. Without that, this rule cannot be unit-tested deterministically —
+tests would have to build appointments relative to the real wall clock and would
+be brittle. It is a five-line provider that pays for itself immediately.
 
 Example:
 
@@ -113,17 +123,30 @@ Cancellation forbidden.
 
 # Cancellation Transaction
 
-Cancellation should:
+```text
+BEGIN
+  verify ownership (patient owns it, or ADMIN)
+  verify cancellation window using Clock
+  UPDATE appointment SET status = 'CANCELLED', cancelled_at = now()
+    WHERE id = $1 AND status = 'CONFIRMED'
+  if zero rows affected -> already cancelled, return current state
+COMMIT
 
-1. verify ownership
-2. verify cancellation window
-3. mark appointment CANCELLED
-4. prevent reminder from firing
-5. enqueue WAITING_LIST_PROCESS
+after commit:
+  best-effort: remove the delayed reminder job
+  enqueue WAITING_LIST_PROCESS for (doctor_id, start_at)
+```
+
+The reminder is stopped by the worker re-checking appointment status at execution
+time. Removing the BullMQ job is best-effort only and is never relied upon — see
+`docs/INFRASTRUCTURE/BackgroundJobs.md`.
 
 Waiting-list processing must happen asynchronously.
 
 Do not assign the next waiting patient inside the HTTP request.
+
+If the process dies after commit but before the enqueue, the reconciliation
+sweeper picks the slot up on its next pass.
 
 ---
 

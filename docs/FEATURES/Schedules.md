@@ -33,14 +33,12 @@ Different schedule rows for the same doctor may use different durations (for exa
 
 # Requirements
 
-Doctor can:
+A doctor can create, update, remove and view their **own** schedule.
 
-- create schedule
-- update schedule
-- remove schedule
-- view schedule
+An ADMIN can do the same for **any** doctor.
 
-Doctor can only modify their own schedule.
+Both go through the same ownership rule described in `docs/FEATURES/Auth.md`:
+the caller is ADMIN, or the caller is the doctor being addressed.
 
 ---
 
@@ -68,10 +66,27 @@ Availability and new bookings use the duration on the matching schedule row.
 
 # Date Handling
 
-The API must define one timezone strategy.
+Decided: a single clinic timezone from the `CLINIC_TZ` environment variable.
 
-Use a consistent timezone for schedule calculations and document it in the README.
+- Schedule rows store wall-clock `time` values with no timezone.
+- Appointments and blocks store `timestamptz` (UTC).
+- Conversion happens only during schedule expansion, described in
+  `docs/FEATURES/Availability.md`.
 
-Do not mix local server time and UTC implicitly.
+Do not mix local server time and UTC implicitly. Server local time is never used
+for business logic — `CLINIC_TZ` is, so behaviour does not change with the host.
 
-All persisted appointment timestamps should use PostgreSQL timestamp semantics consistently.
+---
+
+# Consequence for the Booking Constraint
+
+Because slot duration lives on each schedule row, may differ per weekday, and may
+change without rewriting historical appointments, a doctor can hold a 30-minute
+appointment while their schedule has since moved to 15-minute slots.
+
+This is exactly why the booking invariant is enforced with an overlap exclusion
+constraint rather than a unique index on `start_at`. See
+`docs/INFRASTRUCTURE/Concurrency.md`.
+
+Overlapping schedule rows for the same doctor/day are rejected in the service
+layer, because PostgreSQL has no built-in range type over `time`.
