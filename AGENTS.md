@@ -2,16 +2,16 @@
 
 You are implementing a Backend Developer technical task.
 
-Read these files before writing code:
+Project documentation lives under `docs/`. Read these files before writing code:
 
-1. DECISIONS.md
-2. STACK.md
-3. ARCHITECTURE.md
-4. DEVELOPMENT.md
-5. DATABASE.md
-6. API.md
-7. Relevant files under FEATURES/
-8. Relevant files under INFRASTRUCTURE/
+1. docs/DECISIONS.md
+2. docs/STACK.md
+3. docs/ARCHITECTURE.md
+4. docs/DEVELOPMENT.md
+5. docs/DATABASE.md
+6. docs/API.md
+7. Relevant files under docs/FEATURES/
+8. Relevant files under docs/INFRASTRUCTURE/
 
 ---
 
@@ -20,19 +20,19 @@ Read these files before writing code:
 When requirements conflict, use this priority:
 
 1. Explicit task requirements
-2. DECISIONS.md
+2. docs/DECISIONS.md
 3. Database correctness and concurrency guarantees
 4. Security and authorization
-5. Business rules documented in FEATURES/
-6. ARCHITECTURE.md
-7. DEVELOPMENT.md
+5. Business rules documented in docs/FEATURES/
+6. docs/ARCHITECTURE.md
+7. docs/DEVELOPMENT.md
 8. Agent implementation preferences
 
 Never sacrifice correctness to preserve an architectural preference.
 
-DECISIONS.md records settled decisions together with the alternatives that were
+docs/DECISIONS.md records settled decisions together with the alternatives that were
 rejected and why. Do not silently re-open a settled decision. If implementation
-reveals that a decision is wrong, say so explicitly and update DECISIONS.md
+reveals that a decision is wrong, say so explicitly and update docs/DECISIONS.md
 along with the affected docs.
 
 ---
@@ -190,7 +190,7 @@ The concurrency test must use a real PostgreSQL database.
 
 When making an important design decision:
 
-- document the decision in the appropriate docs file
+- document the decision in the appropriate file under docs/
 - update README if it affects the requested deliverables
 
 ---
