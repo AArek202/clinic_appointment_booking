@@ -13,13 +13,21 @@ export class AppException extends HttpException {
 }
 
 export class ConflictError extends AppException {
-  constructor(code: ErrorCode, message: string, extra?: Record<string, unknown>) {
+  constructor(
+    code: ErrorCode,
+    message: string,
+    extra?: Record<string, unknown>,
+  ) {
     super(code, message, HttpStatus.CONFLICT, extra);
   }
 }
 
 export class BadRequestError extends AppException {
-  constructor(code: ErrorCode, message: string, extra?: Record<string, unknown>) {
+  constructor(
+    code: ErrorCode,
+    message: string,
+    extra?: Record<string, unknown>,
+  ) {
     super(code, message, HttpStatus.BAD_REQUEST, extra);
   }
 }

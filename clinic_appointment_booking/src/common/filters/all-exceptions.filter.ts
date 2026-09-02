@@ -44,7 +44,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
         message:
           typeof body === 'string'
             ? body
-            : ((body as { message?: string | string[] }).message ?? exception.message),
+            : ((body as { message?: string | string[] }).message ??
+              exception.message),
       });
       return;
     }
