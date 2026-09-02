@@ -1,6 +1,6 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { Response } from 'express';
+import type { Response } from 'express';
 import { DataSource } from 'typeorm';
 
 @Controller('health')
