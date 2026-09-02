@@ -25,10 +25,12 @@ PostgreSQL 16, Docker Compose, psql, Jest 30.
 
 - No `synchronize: true`, in any environment. The seed runs *after* `migrate`
   and never creates or alters schema. (`docs/STACK.md`)
-- The seed must not violate `appointments_no_overlap` or
-  `appointments_patient_no_overlap`. Those constraints stay enabled throughout
-  the load; a generator bug must fail loudly with SQLSTATE `23P01`, not produce
-  quietly wrong data. (`docs/DATABASE.md`)
+- The seed must not violate `appointments_no_overlap`,
+  `appointments_patient_no_overlap` or `blocks_no_overlap`. Those constraints
+  stay enabled throughout the load; a generator bug must fail loudly with
+  SQLSTATE `23P01`, not produce quietly wrong data. (`docs/DATABASE.md`)
+- One block per doctor per day, so blocked periods cannot overlap.
+  (`docs/DECISIONS.md` #18)
 - Database identifiers are `snake_case`; TypeScript is `camelCase`. Column and
   table names come from `docs/PLANS/00-interfaces.md` and nothing else.
 - `schedules.day_of_week` uses **0 = Sunday .. 6 = Saturday**, matching
@@ -1043,12 +1045,38 @@ describe('buildBlocks', () => {
       expect(block.endAt.getTime()).toBeLessThanOrEqual(to);
     }
   });
+
+  it('never produces two blocks that overlap', () => {
+    // blocks_no_overlap would abort the COPY with SQLSTATE 23P01.
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const blocks = buildBlocks(
+        'doctor-1',
+        FULL_SCALE,
+        new Rng(seed),
+        '2026-01-01',
+        '2026-12-31',
+        'Africa/Cairo',
+      ).sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
+
+      for (let i = 1; i < blocks.length; i += 1) {
+        expect(blocks[i].startAt.getTime()).toBeGreaterThanOrEqual(
+          blocks[i - 1].endAt.getTime(),
+        );
+      }
+    }
+  });
 });
 ```
 
-The overlap test enforces `docs/FEATURES/Schedules.md`: overlapping schedule
-rows are rejected by the service layer, and seeded data that would have been
-rejected through the API is data the API can never reproduce.
+The schedule overlap test enforces `docs/FEATURES/Schedules.md`: overlapping
+schedule rows are rejected by the service layer, and seeded data that would have
+been rejected through the API is data the API can never reproduce.
+
+The block overlap test enforces the same idea one level harder. Overlapping
+blocks are rejected by `blocks_no_overlap` (`docs/DECISIONS.md` #18), so a
+generator that produced them would not write bad rows — it would fail the whole
+seed with `23P01`. Several seeds are checked because a single one can miss a
+collision by luck.
 
 - [ ] **Step 3: Run the test to verify it fails**
 
@@ -1123,6 +1151,12 @@ export function buildSchedules(doctorId: string, tier: DoctorTier): ScheduleRow[
  * examples in docs/DATABASE.md. Blocks are generated before appointments and
  * are subtracted from the slot grid, so no seeded appointment ever sits inside
  * a seeded block.
+ *
+ * At most one block per doctor per day. blocks_no_overlap rejects two blocks
+ * for one doctor that share a minute, and a full-day block covers every
+ * candidate short block on the same day, so one per day is the simplest rule
+ * that cannot violate it. Duplicate day draws are skipped rather than retried,
+ * which is why the row count is "up to `count`" and not exactly `count`.
  */
 export function buildBlocks(
   doctorId: string,
@@ -1138,9 +1172,16 @@ export function buildBlocks(
   const count = Math.max(1, Math.round((config.blocksPerDoctorPerYear * totalDays) / 365));
 
   const rows: BlockRow[] = [];
+  const usedDays = new Set<number>();
 
   for (let i = 0; i < count; i += 1) {
-    const day = start.plus({ days: rng.int(0, totalDays - 1) });
+    const dayOffset = rng.int(0, totalDays - 1);
+    if (usedDays.has(dayOffset)) {
+      continue;
+    }
+    usedDays.add(dayOffset);
+
+    const day = start.plus({ days: dayOffset });
     const fullDay = rng.chance(0.4);
 
     const startAt = fullDay
@@ -2374,6 +2415,7 @@ The scripts below use these names:
 | `appointments_patient_start_at_idx` | btree | appointments | Q2 "list my appointments" and the cancel ownership check |
 | `appointments_doctor_start_at_idx` | btree | appointments | Q3 monthly analytics, which must count cancelled rows |
 | `blocks_doctor_time_idx` | btree | blocks | Q4 block subtraction during slot generation |
+| `blocks_no_overlap` | EXCLUDE (GiST) | blocks | invariant only: one period of unavailability per row |
 | `waiting_list_doctor_slot_status_idx` | btree | waiting_list | Q5 assignment job and sweeper |
 | `waiting_list_one_active` | UNIQUE btree, partial | waiting_list | Q6 "am I already in this queue?" |
 | `notifications_unique_per_type` | UNIQUE constraint | notifications | Q7 job idempotency lookup |
@@ -2645,6 +2687,10 @@ Create `scripts/perf/04-blocks.sql`:
 \echo 'NOTE: blocks is a small table. A sequential scan winning here is the'
 \echo '      planner being correct, not the index being wrong. Record what'
 \echo '      actually happens.'
+\echo 'NOTE: blocks_no_overlap leaves a GiST index on (doctor_id, tstzrange).'
+\echo '      The (a) block drops only the btree, so (a) may still show an index'
+\echo '      scan on the constraint index for the doctor_id equality. That is'
+\echo '      a real result, not a broken measurement.'
 \echo '=========================================================================='
 
 SELECT count(*) AS total_blocks, pg_size_pretty(pg_total_relation_size('blocks')) AS size
@@ -3012,6 +3058,10 @@ Two outcomes are legitimate and both must be recorded honestly:
   correct. Keep the index and say plainly that it does not pay for itself at
   seed scale but will as blocks accumulate, and that `blocks` is written rarely
   enough for the write cost to be irrelevant. Do not quietly omit the row.
+  If the (a) plan uses `blocks_no_overlap` instead of a sequential scan, say so:
+  the constraint index covers `doctor_id` equality, which is a further reason the
+  btree may not earn its place. `blocks_no_overlap` stays regardless — it is the
+  invariant, not an optimisation.
 - **`appointments_patient_start_at_idx` is matched by the GiST constraint
   index in Q2b.** If that happens, the btree really is redundant and the
   correct response is a follow-up migration dropping it — that is exactly the
@@ -3405,12 +3455,13 @@ serves; section 12 has the measured plans.
 | `(patient_id, start_at)` | appointments | `GET /appointments/me`, and the ownership check on cancel. |
 | `(doctor_id, start_at)` | appointments | The monthly analytics query. It must count CANCELLED rows, so it cannot use the partial index — which is the entire reason this second index exists. |
 | `(doctor_id, start_at, end_at)` | blocks | Subtracting blocked periods during slot generation. |
+| `blocks_no_overlap` (GiST) | blocks | Enforces one period of unavailability per row. It exists for the invariant, not for a query; the btree above is what the range lookup is measured against. |
 | `(doctor_id, slot_start_at, status)` | waiting_list | The assignment job finding waiters for a freed slot, and the sweeper scanning for stranded entries. |
 | `(doctor_id, patient_id, slot_start_at) WHERE status = 'WAITING'` (unique) | waiting_list | Enforces one active entry per patient per slot, and doubles as the "already queued?" lookup. |
 | `(appointment_id, type)` (unique) | notifications | Enforces one notification of each type per appointment, and doubles as the job idempotency lookup. |
 | `(scheduled_at) WHERE status = 'PENDING'` | notifications | The reconciliation sweeper finding due-but-unsent notifications. `status` is constant under the predicate, so it is not in the key. |
 
-Three of those indexes are created by constraints rather than declared
+Four of those indexes are created by constraints rather than declared
 separately. That is the point: the invariant and the index are the same object,
 so neither can drift away from the other.
 
@@ -3430,6 +3481,11 @@ preventing two overlapping `schedules` rows on the same weekday cannot use an
 exclusion constraint without defining a custom range type. That validation lives
 in the service layer instead. It is a deliberate gap, not an oversight, and it
 is the one invariant in the schema that an application bug could violate.
+
+The rule against overlapping `blocks` looks like the same problem and is not:
+those columns are `timestamptz`, so `blocks_no_overlap` enforces it in the
+database. The gap is a limitation of the `time` type, not a preference for
+validating in the service layer.
 ```
 
 - [ ] **Step 5: Write section 8, the waiting-list assumptions**
@@ -3535,11 +3591,14 @@ need the same "have we already done this?" check, so one table means one unique
 constraint, one conditional-update pattern and one repository instead of
 implementing idempotency twice.
 
-Redis runs with `--appendonly yes` and a named volume, because delayed reminder
-jobs exist only in Redis until they fire and a plain `docker compose restart
-redis` would otherwise drop every scheduled reminder. The sweeper can rebuild
-them — that is the real safety net — but a recovery path should not be needed
-for a routine restart.
+Redis runs with no persistence and no volume. Delayed reminder jobs exist only in
+Redis until they fire, so restarting it drops the delayed set — but every
+reminder also has a `PENDING` `notifications` row in PostgreSQL, and the sweeper
+sends anything whose `scheduled_at` has passed. A restart therefore costs at most
+one sweep interval and loses nothing. Making Redis durable was considered and
+rejected: it would store a second copy of an intent PostgreSQL already owns,
+while changing none of the correctness guarantees. Redis is a scheduler;
+PostgreSQL is the store of record.
 
 **A transactional outbox was considered and rejected.** It is strictly stronger:
 nothing can ever be lost. It was disproportionate here, because it means
@@ -3583,12 +3642,13 @@ plausible-looking wrong answers rather than errors:
 
 - **Month boundaries are taken in clinic-local time**, not UTC, so appointments
   near midnight land in the right month.
-- **Overlapping blocks are merged with `range_agg` before subtraction.** A
-  vacation day with an emergency block inside it is legal and likely.
-  Intersecting each block with a working window separately would subtract the
-  shared time twice, and utilization could then exceed 100% or go negative.
-  `range_agg` unions overlaps automatically, so each blocked minute is
-  subtracted exactly once. It requires PostgreSQL 14+, which is why compose pins
+- **Blocks are merged with `range_agg` before subtraction.** Intersecting each
+  block with a working window separately would subtract any shared minute twice,
+  and utilization could then exceed 100% or go negative. A doctor's blocks cannot
+  overlap — `blocks_no_overlap` rejects that — so the merge is not the only
+  defence, but it makes the arithmetic correct by construction instead of
+  depending on a constraint in another table.
+  `range_agg` requires PostgreSQL 14+, which is why compose pins
   16.
 ```
 

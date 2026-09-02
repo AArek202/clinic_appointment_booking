@@ -194,6 +194,7 @@ schedules_slot_duration_valid        CHECK duration IN (15,30,60)   (Plan 3)
 schedules_time_valid                 CHECK start_time < end_time    (Plan 3)
 schedules_day_of_week_valid          CHECK day_of_week 0..6         (Plan 3)
 blocks_time_valid                    CHECK end_at > start_at        (Plan 3)
+blocks_no_overlap                    EXCLUDE, block overlap         (Plan 3)
 users_email_unique                   UNIQUE (email)                 (Plan 2)
 doctors_user_id_unique               UNIQUE (user_id)               (Plan 2)
 patients_user_id_unique              UNIQUE (user_id)               (Plan 2)
@@ -220,9 +221,9 @@ export function getConstraintName(error: unknown): string | undefined;
 export function isConstraintViolation(error: unknown, constraint: string): boolean;
 ```
 
-Both appointment exclusion constraints raise `23P01`, so callers must branch on
-`getConstraintName`, never on SQLSTATE alone. See
-`docs/INFRASTRUCTURE/Concurrency.md`.
+All three exclusion constraints — both on `appointments` and `blocks_no_overlap`
+— raise `23P01`, so callers must branch on `getConstraintName`, never on SQLSTATE
+alone. See `docs/INFRASTRUCTURE/Concurrency.md`.
 
 ---
 

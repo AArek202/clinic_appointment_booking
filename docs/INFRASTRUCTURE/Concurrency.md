@@ -110,8 +110,15 @@ Map by SQLSTATE **and constraint name**, never by matching error message text:
 
 - `23P01` on `appointments_no_overlap` -> 409, `SLOT_ALREADY_BOOKED`
 - `23P01` on `appointments_patient_no_overlap` -> 409, `PATIENT_ALREADY_BOOKED`
+- `23P01` on `blocks_no_overlap` -> 409, `BLOCK_OVERLAP`
 - `23505` on `waiting_list_one_active` -> 409, `ALREADY_IN_WAITING_LIST`
 - `23505` on `notifications_unique_per_type` -> not an error; the job treats it as "already done"
+
+`blocks_no_overlap` is listed for completeness. Block creation has no concurrency
+pressure — a doctor does not race themselves to record the same absence twice —
+so in practice the service's own overlap lookup returns `BLOCK_OVERLAP` first,
+and the constraint is what keeps the table correct no matter who writes to it.
+See `docs/DECISIONS.md` #18.
 
 The constraint name is required, not optional detail. Both appointment
 constraints raise the same SQLSTATE while meaning different things: one says the

@@ -71,10 +71,12 @@ Each pass handles:
    -> mark EXPIRED.
 
 The sweeper is the recovery story for more than the commit gap. Delayed BullMQ
-jobs live only in Redis, so a Redis restart without a persistent volume loses
-every scheduled reminder. Because `notifications` rows are written to PostgreSQL
-when the appointment is confirmed, the sweeper can rebuild that work from the
-database. Redis is treated as a scheduler, not as a store of record.
+jobs live only in Redis, and Redis runs without persistence by decision
+(`docs/DECISIONS.md` #14), so restarting it drops the delayed set. Because
+`notifications` rows are written to PostgreSQL when the appointment is confirmed,
+nothing is lost: a reminder that was already due goes out on the next sweep, and
+one still in the future is sent when its `scheduled_at` arrives. Redis is treated
+as a scheduler, not as a store of record.
 
 Every sweeper action is idempotent, so running it concurrently on multiple app
 instances is safe.

@@ -60,6 +60,32 @@ Changing a schedule's slot duration must not modify historical appointments.
 
 Historical appointments retain their original start/end times.
 
+---
+
+# Blocked Periods
+
+Separate from the recurring weekly schedule, a doctor can mark specific dates or
+times as unavailable.
+
+The cause may be planned, such as a vacation day, or unexpected: a sudden
+personal or family emergency, an urgent hospital case, unexpected illness, an
+urgent meeting or work commitment, or anything else that stops the doctor
+attending appointments. The system does not distinguish between these. `reason`
+is a free-text note, not a category the logic branches on.
+
+A block prevents new bookings inside the period. It does not change appointments
+that were already confirmed there — only the patient can cancel an appointment
+(`docs/FEATURES/Appointments.md`), so notifying and rebooking those patients is
+outside what this system does.
+
+A doctor's blocks may not overlap each other: one period of unavailability is one
+row. Adjacent blocks are accepted, because the bound is half-open. This is
+enforced in the database by `blocks_no_overlap`, and the rejection is
+`409 BLOCK_OVERLAP` (`docs/DECISIONS.md` #18).
+
+Blocks go through the same ownership rule as schedules: the caller is ADMIN, or
+the caller is the doctor being addressed.
+
 Availability and new bookings use the duration on the matching schedule row.
 
 ---

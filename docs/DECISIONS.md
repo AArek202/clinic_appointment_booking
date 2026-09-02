@@ -110,9 +110,6 @@ EXCLUDE USING gist (
 - _PostgreSQL advisory locks._ No extension needed, but protects only code paths
   that remember to take the lock, and hash collisions serialize unrelated slots.
 - _Pessimistic row locking._ There is no row to lock when the slot is empty.
-- _Redis distributed lock._ Adds a failure mode, and PostgreSQL already owns
-  appointment consistency. If Redis is down you either stop taking bookings or
-  fall back to the database — which means the database was the real protection.
 
 **Why:** the constraint protects the _table_, so the waiting-list job, the seed
 script and manual `psql` access are all covered without remembering anything.
@@ -295,11 +292,14 @@ Sunday, so `schedules.day_of_week` must use 0 = Sunday. Storing ISO 1 = Monday
 would shift every schedule by one day while still looking internally consistent.
 The column carries a migration comment and a `CHECK` for this reason.
 
-**Trap 2: overlapping blocks would be double-subtracted.** A vacation day with an
-emergency block inside it is legal and likely. Intersecting each block with a
-working window separately subtracts the shared time twice, so utilization can
-exceed 100% or go negative. Blocks are therefore merged with `range_agg` into one
-multirange _before_ subtraction, which unions overlaps automatically.
+**Trap 2: subtracting blocks one at a time can double-count.** Intersecting each
+block with a working window separately subtracts any shared minute twice, so
+utilization can exceed 100% or go negative. Overlapping blocks are rejected at
+write time (#18), so no legal row can trigger this — but the query still merges
+blocks with `range_agg` into one multirange _before_ subtraction, because
+multirange difference is a single operator that is structurally incapable of
+subtracting a minute twice. It costs nothing and does not depend on the
+constraint being in place.
 
 `range_agg` requires PostgreSQL 14+, which is why compose pins 16.
 
@@ -326,14 +326,27 @@ See `docs/INFRASTRUCTURE/Deployment.md`.
 
 ---
 
-## 14. Redis persistence, and migrations as a one-shot service
+## 14. Redis is ephemeral, and migrations run as a one-shot service
 
-**Decided:** Redis runs `--appendonly yes` with a named volume.
+**Decided:** Redis runs with no persistence — no `--appendonly`, no named
+volume. Restarting Redis loses whatever delayed jobs were sitting in it.
 
-_Why:_ delayed reminder jobs exist only in Redis until they fire, so a plain
-restart would drop every scheduled reminder. The sweeper can rebuild them from
-`notifications` — that is the real safety net — but a recovery path should not be
-needed for a routine restart.
+**Alternative considered:** `--appendonly yes` on a named volume so the delayed
+set survives a restart. That was the earlier decision here, and it was reversed.
+
+_Why:_ losing the delayed set costs nothing that matters. Every reminder already
+has a `PENDING` `notifications` row in PostgreSQL, and the sweeper sends anything
+whose `scheduled_at` has passed. A restart therefore delays a due reminder by up
+to a minute — the same bound already accepted for a lost enqueue — and leaves
+future reminders untouched, because they fire from the sweeper when their time
+arrives. Persistence would not change one correctness claim: "at most one
+reminder" comes from `UNIQUE (appointment_id, type)` plus the conditional status
+update, never from Redis.
+
+Keeping Redis disposable also makes the design statement literally true rather
+than a caveat. Redis is a scheduler; PostgreSQL is the store of record. A durable
+Redis would hold a second copy of the same intent that the project then has to
+explain it does not trust.
 
 **Decided:** a `migrate` one-shot service runs migrations and exits; `api` and
 `worker` wait on `service_completed_successfully`.
@@ -436,3 +449,44 @@ into application control flow, and it is worth walking through on the call.
   produces the worst case, and the busiest doctor's plan is the number worth
   reporting. `EXPLAIN ANALYZE` is measured against a busy doctor, not an average
   one.
+
+---
+
+## 18. A doctor's blocks may not overlap
+
+**Decided:** one period of unavailability is one row. Enforced by an exclusion
+constraint and mapped to `409 BLOCK_OVERLAP`.
+
+```sql
+ALTER TABLE blocks ADD CONSTRAINT blocks_no_overlap
+  EXCLUDE USING gist (
+    doctor_id WITH =,
+    tstzrange(start_at, end_at, '[)') WITH &&
+  );
+```
+
+**Alternative considered, and previously decided the other way:** allowing
+overlap, on the grounds that a vacation day might contain an emergency block.
+Reversed.
+
+**Why:** a block means "the doctor is unavailable for this period", whether the
+cause was planned (vacation) or unexpected (family emergency, illness, an urgent
+hospital case). Recording an emergency inside a vacation day states
+unavailability that is already stated, so the second row carries no information
+while every consumer of `blocks` — availability, booking, the capacity query —
+has to reason about the pair. Rejecting the overlap removes a case instead of
+handling it in three places.
+
+**Why a constraint rather than a service check:** `blocks` stores `timestamptz`,
+so `tstzrange` exists and `btree_gist` is already installed for the appointment
+constraints. This is one line of DDL that protects the table itself, including
+the seed script. The comparison with schedules is instructive: that rule stays in
+the service layer only because PostgreSQL ships no range type over `time`
+(see "Known gap" in `docs/DATABASE.md`), not because service-layer validation was
+preferred.
+
+The bound is half-open `'[)'`, matching every other range in the schema, so
+adjacent blocks such as 10:00–11:00 and 11:00–12:00 are still accepted. Blocks
+have no status column, so unlike the appointment constraints this one is not
+partial — deleting a block is a real delete, and there is no `PATCH`, so widening
+a block is delete-then-create.

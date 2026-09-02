@@ -33,7 +33,9 @@ only), Jest 30, Supertest.
   convention and the capacity join depends on it. (`docs/DATABASE.md`,
   `docs/DECISIONS.md` #12)
 - **Blocks are merged with `range_agg` into one multirange before subtraction**,
-  so overlapping blocks are never subtracted twice. (`docs/DECISIONS.md` #12)
+  so no minute can be subtracted twice. `blocks_no_overlap` (Plan 3) already
+  makes overlapping blocks unstorable; the merge keeps the query correct without
+  depending on that. (`docs/DECISIONS.md` #12, #18)
 - **`range_agg` and multirange types require PostgreSQL 14+.** Compose pins
   PostgreSQL 16. (`docs/PLANS/01-foundation.md` Global Constraints)
 - **Every division is guarded with `NULLIF` and wrapped in `COALESCE(..., 0)`.**
@@ -190,12 +192,14 @@ than the wall-clock difference suggests. That is correct — the doctor really d
 work one hour less that day.
 
 **`blocked`** merges every block overlapping the month into a **single
-multirange** with `range_agg`. This is not cosmetic. A vacation day that also
-contains an emergency block is legal and likely. If each block were intersected
-with a working window separately, the shared time would be subtracted twice; a
+multirange** with `range_agg`. If each block were intersected with a working
+window separately, any time two of them shared would be subtracted twice; a
 window can then go negative and total utilization can exceed 100% or turn
-negative. `range_agg` unions the overlaps first, so every blocked minute is
-subtracted exactly once. `COALESCE(..., '{}'::tstzmultirange)` is there because
+negative. `blocks_no_overlap` (Plan 3) means a doctor cannot store two blocks
+that share a minute, so the merge is not the only thing standing between the
+query and that bug — but it makes the arithmetic correct by construction rather
+than by trusting a constraint in another table's migration, and it costs one
+function call. `COALESCE(..., '{}'::tstzmultirange)` is there because
 `range_agg` over zero rows returns `NULL`, and a `NULL` multirange would poison
 the subtraction downstream.
 
@@ -836,8 +840,8 @@ describe('AnalyticsRepository.getDoctorMonthlyAnalytics', () => {
     });
   });
 
-  describe('overlapping blocks are subtracted once, not twice', () => {
-    it('merges blocks before subtracting them from capacity', async () => {
+  describe('blocks are subtracted only where they overlap a working window', () => {
+    it('subtracts a partial block proportionally and ignores one outside working hours', async () => {
       const doctorId = await createDoctor(ds, 'blocks');
       const patientId = await createPatient(ds, 'blocks');
 
@@ -860,18 +864,20 @@ describe('AnalyticsRepository.getDoctorMonthlyAnalytics', () => {
         reason: 'vacation',
       });
 
-      // Block B: an emergency INSIDE the vacation day, 09:00-13:00 Cairo.
-      // = 08 Feb 07:00Z -> 08 Feb 11:00Z. Entirely contained in block A.
+      // Block B: an emergency covering the first hour of Sun 15 Feb,
+      // 10:00-11:00 Cairo = 08:00Z-09:00Z. Half of that window, so half of it
+      // goes and the rest survives.
       await createBlock(ds, {
         doctorId,
-        startAt: '2026-02-08T07:00:00Z',
-        endAt: '2026-02-08T11:00:00Z',
+        startAt: '2026-02-15T08:00:00Z',
+        endAt: '2026-02-15T09:00:00Z',
         reason: 'emergency',
       });
 
       // Block C: Sun 15 Feb 18:00-20:00 Cairo = 16:00Z-18:00Z.
       // Entirely outside the 10:00-12:00 working window, so it must subtract
-      // nothing at all.
+      // nothing at all. It also has to miss block B: blocks_no_overlap would
+      // reject the insert outright if two blocks for one doctor intersected.
       await createBlock(ds, {
         doctorId,
         startAt: '2026-02-15T16:00:00Z',
@@ -903,24 +909,24 @@ describe('AnalyticsRepository.getDoctorMonthlyAnalytics', () => {
       const result = await repository.getDoctorMonthlyAnalytics(doctorId, 2026, 2);
 
       // Windows, in Cairo local time:
-      //   Sun  1 Feb 10:00-12:00 -> 120 minutes, nothing blocked      -> 120
-      //   Sun  8 Feb 10:00-12:00 -> 120 minutes, fully inside block A ->   0
-      //   Sun 15 Feb 10:00-12:00 -> 120 minutes, block C misses it    -> 120
-      //   Sun 22 Feb 10:00-12:00 -> 120 minutes, nothing blocked      -> 120
-      // available = 120 + 0 + 120 + 120 = 360 minutes
-      // booked    = 3 x 30                          =  90 minutes
-      //  90 / 360 * 100 = 25.00
+      //   Sun  1 Feb 10:00-12:00 -> 120 minutes, nothing blocked        -> 120
+      //   Sun  8 Feb 10:00-12:00 -> 120 minutes, fully inside block A   ->   0
+      //   Sun 15 Feb 10:00-12:00 -> 120 minutes, block B takes 10:00-11:00 ->  60
+      //   Sun 22 Feb 10:00-12:00 -> 120 minutes, nothing blocked        -> 120
+      // available = 120 + 0 + 60 + 120 = 300 minutes
+      // booked    = 3 x 30                         =  90 minutes
+      //  90 / 300 * 100 = 30.00
       //
-      // Subtracting each block from the window separately would take
-      // 120 (block A) + 120 (block B, which overlaps the window 10:00-12:00)
-      // off a 120-minute window, leaving that window at MINUS 120 minutes and
-      // the month at 120 - 120 + 120 + 120 = 240. That gives
-      // 90 / 240 * 100 = 37.50 -- wrong, and with one more blocked Sunday it
-      // would drive the denominator negative and the percentage below zero.
-      expect(result.utilizationRate).toBe(25);
+      // The partial block is the interesting one: it must remove exactly the
+      // hour it covers, not the whole window and not nothing.
+      expect(result.utilizationRate).toBe(30);
 
-      // Guard rails: a merged-multirange subtraction is set difference, so it
-      // can never remove more time than the window contains.
+      // Guard rails: multirange difference is set difference, so it can never
+      // remove more time than the window contains. Subtracting ranges one at a
+      // time could -- two ranges covering the same minute would take it off
+      // twice, driving a window negative and the percentage below zero. Since
+      // Plan 3 added blocks_no_overlap that data is also unstorable, so this
+      // asserts the query's own arithmetic rather than the constraint's work.
       expect(result.utilizationRate).toBeGreaterThanOrEqual(0);
       expect(result.utilizationRate).toBeLessThanOrEqual(100);
 
@@ -1152,10 +1158,10 @@ windows AS (
 
 blocked AS (
   -- Every block touching the month, merged into ONE multirange before it is
-  -- subtracted. A vacation day containing an emergency block is legal; without
-  -- the merge the shared hours would be subtracted twice and utilization could
-  -- exceed 100% or go negative. range_agg unions overlaps automatically.
-  -- range_agg over zero rows returns NULL, hence the COALESCE.
+  -- subtracted. Subtracting block by block would take any shared minute off
+  -- twice and utilization could exceed 100% or go negative. blocks_no_overlap
+  -- makes such a pair unstorable; the merge means the query does not depend on
+  -- that. range_agg over zero rows returns NULL, hence the COALESCE.
   SELECT COALESCE(
            range_agg(tstzrange(b.start_at, b.end_at, '[)')),
            '{}'::tstzmultirange
@@ -1303,10 +1309,11 @@ export class AppModule {}
 Run: `npx jest --config test/jest-e2e.json test/analytics-repository.e2e-spec.ts`
 Expected: PASS — 13 tests.
 
-If `utilizationRate` comes back as `37.5` in the overlapping-blocks test, the
-blocks are being subtracted per block instead of from a merged multirange —
-check that `blocked` uses `range_agg` and that `capacity` subtracts
-`bl.ranges` once.
+If `utilizationRate` comes back as `25` in the block-subtraction test, the
+partial block on 15 February is not being subtracted at all; if it comes back as
+`37.5`, it is removing the whole window instead of the hour it covers. Either way
+check that `capacity` subtracts `bl.ranges` from `tstzmultirange(w.win)` and sums
+what survives, rather than treating any intersection as a fully blocked window.
 
 If the boundary tests report January 1 / February 3 / March 0, the month
 boundaries are being computed in UTC — check that `params` applies
@@ -2359,7 +2366,7 @@ git commit -m "test(analytics): guard against aggregating appointments in JavaSc
       returns all four metrics.
 
 The two worth actually re-running by hand are the month-boundary test and the
-overlapping-blocks test. Both fail in ways that still look like plausible
+block-subtraction test. Both fail in ways that still look like plausible
 numbers, which is precisely why they exist.
 
 ---
@@ -2376,8 +2383,8 @@ the round-trip and scalar-shape assertions in Task 2), one round trip (Task 2
 Step 2), clinic-local month boundaries (Task 2, "month boundaries in
 clinic-local time"), `EXTRACT(DOW)` = 0 for Sunday (stated in Global
 Constraints, the walkthrough, the SQL comment, and asserted indirectly by the
-overlapping-blocks test), merged blocks (Task 2, "overlapping blocks are
-subtracted once"), `range_agg` needing PostgreSQL 14+ (Global Constraints and
+block-subtraction test), merged blocks (Task 2, "blocks are subtracted only
+where they overlap a working window"), `range_agg` needing PostgreSQL 14+ (Global Constraints and
 the SQL header comment), `NULLIF` guards with zero-appointment and no-schedule
 tests (Task 2, "guarded divisions"), cancelled counted in totals but not booked
 minutes in a single fixture (Task 2, first block), tied peak hours (Task 2,
@@ -2421,7 +2428,10 @@ verification steps, the evidence file and the Definition of Done.
   intersecting per block is the double-counting bug the same file warns about
   two sections later. This plan uses multirange difference,
   `tstzmultirange(win) - merged_blocks`, which is one operator, cannot subtract
-  a minute twice, and cannot drive a window negative.
+  a minute twice, and cannot drive a window negative. `blocks_no_overlap`
+  (Plan 3) already makes overlapping blocks unstorable, so this is belt and
+  braces rather than the only defence — but it is free, and it does not depend
+  on that constraint remaining in place.
 - Neither `docs/API.md` nor `docs/FEATURES/Analytics.md` specifies the analytics
   response body. Task 4 fixes it as `DoctorMonthlyAnalytics` serialised
   verbatim, with no separate response DTO, and records that in

@@ -831,20 +831,26 @@ export class SchedulesService {
 
 // src/common/errors/error-code.enum.ts
 ErrorCode.ScheduleOverlap === 'SCHEDULE_OVERLAP'
+ErrorCode.BlockOverlap === 'BLOCK_OVERLAP'
 ```
 
-- [ ] **Step 1: Add the new error code**
+- [ ] **Step 1: Add the new error codes**
 
 Overlapping schedule rows are a state conflict, so they return `409`. Several
 conditions share `409`, which is exactly why `docs/API.md` says tests assert on
 `code` rather than message text — so this needs a code of its own.
 
-Modify `src/common/errors/error-code.enum.ts`, inserting one line after
+Blocks need the same treatment for the same reason (`docs/DECISIONS.md` #18), and
+both codes live in one file, so both are added here rather than editing the enum
+twice in one plan. `BlockOverlap` is used in Task 6.
+
+Modify `src/common/errors/error-code.enum.ts`, inserting two lines after
 `NotAppointmentOwner`:
 
 ```ts
   NotAppointmentOwner = 'NOT_APPOINTMENT_OWNER',
   ScheduleOverlap = 'SCHEDULE_OVERLAP',
+  BlockOverlap = 'BLOCK_OVERLAP',
   ValidationFailed = 'VALIDATION_FAILED',
 ```
 
@@ -868,7 +874,7 @@ with:
 `SLOT_ALREADY_BOOKED`, `PATIENT_ALREADY_BOOKED`, `SLOT_NOT_ON_GRID`,
 `SLOT_OUTSIDE_SCHEDULE`, `SLOT_BLOCKED`, `CANCELLATION_WINDOW_PASSED`,
 `ALREADY_IN_WAITING_LIST`, `SLOT_IS_AVAILABLE`, `DATE_RANGE_TOO_LARGE`,
-`NOT_APPOINTMENT_OWNER`, `SCHEDULE_OVERLAP`.
+`NOT_APPOINTMENT_OWNER`, `SCHEDULE_OVERLAP`, `BLOCK_OVERLAP`.
 ```
 
 And in the same file, under "## Schedules", after the line
@@ -879,6 +885,19 @@ Two schedule rows for the same doctor and weekday may not overlap. The rejection
 is `409 SCHEDULE_OVERLAP` and carries `conflictingScheduleId`. It is enforced in
 the service layer because PostgreSQL has no built-in range type over `time`; see
 "Known gap: overlapping schedule rows" in `docs/DATABASE.md`.
+```
+
+And under "## Blocks", add:
+
+```text
+A block marks a period when the doctor is unavailable, whether planned (vacation)
+or unexpected (emergency, illness, an urgent hospital case). It prevents new
+bookings in that period and does not alter appointments already confirmed.
+
+A doctor's blocks may not overlap each other; the rejection is
+`409 BLOCK_OVERLAP`. The bound is half-open, so a block starting exactly when
+another ends is accepted. Enforced by the `blocks_no_overlap` exclusion
+constraint, so it holds regardless of who writes to the table.
 ```
 
 - [ ] **Step 3: Write the repository**
@@ -2154,7 +2173,7 @@ git commit -m "feat(schedules): expose doctor schedule endpoints behind the owne
 - Consumes: the `doctors` table created by Plan 2.
 - Produces: entity class `Block` with properties `id`, `doctorId`, `startAt`,
   `endAt`, `reason`; table `blocks` with constraints `blocks_pkey`,
-  `blocks_doctor_id_fkey`, `blocks_time_valid`, and index
+  `blocks_doctor_id_fkey`, `blocks_time_valid`, `blocks_no_overlap`, and index
   `blocks_doctor_id_start_at_end_at_idx`.
 
 - [ ] **Step 1: Create the entity**
@@ -2214,6 +2233,17 @@ export class CreateBlocks1756900100000 implements MigrationInterface {
       )
     `);
 
+    // One period of unavailability per row per doctor. The bound is half-open,
+    // so adjacent blocks are still accepted. btree_gist is created by Plan 1's
+    // first migration. See docs/DECISIONS.md #18.
+    await queryRunner.query(`
+      ALTER TABLE blocks ADD CONSTRAINT blocks_no_overlap
+        EXCLUDE USING gist (
+          doctor_id WITH =,
+          tstzrange(start_at, end_at, '[)') WITH &&
+        )
+    `);
+
     // Named query: "which blocked periods does this doctor have that touch the
     // requested date range?", run on every availability request and every
     // booking. docs/DATABASE.md lists this index for exactly that query.
@@ -2232,12 +2262,19 @@ export class CreateBlocks1756900100000 implements MigrationInterface {
 }
 ```
 
-Note that there is **no** constraint forbidding overlapping blocks, and that is
-deliberate. `docs/DECISIONS.md` #12 points out that a vacation day with an
-emergency block inside it is both legal and likely, and Plan 8's capacity query
-handles it by merging blocks with `range_agg` before subtracting them. Rejecting
-overlapping blocks would break a real use case to solve a problem that is
-already solved downstream.
+`blocks_no_overlap` is the database-level form of `docs/DECISIONS.md` #18: a
+block says "the doctor is unavailable for this period", so a second row covering
+part of the same period adds nothing while forcing availability, booking and the
+capacity query to reason about the pair. One period, one row.
+
+Contrast this with the schedules rule in Task 1, which lives in the service layer
+only because PostgreSQL ships no range type over `time`. Here the columns are
+`timestamptz`, `tstzrange` exists, and `btree_gist` is already installed, so the
+invariant costs one `ALTER TABLE` and protects the table itself — including the
+seed script in Plan 9.
+
+Unlike the appointment constraints this one has no `WHERE` clause, because
+`blocks` has no status column and removing a block is a real delete.
 
 - [ ] **Step 3: Run the migration**
 
@@ -2255,9 +2292,10 @@ docker compose exec postgres psql -U clinic -d clinic -c "SELECT conname FROM pg
 docker compose exec postgres psql -U clinic -d clinic -c "SELECT indexname FROM pg_indexes WHERE tablename = 'blocks' ORDER BY indexname;"
 ```
 
-Expected, three constraint rows — `blocks_doctor_id_fkey`, `blocks_pkey`,
-`blocks_time_valid` — and two index rows —
-`blocks_doctor_id_start_at_end_at_idx`, `blocks_pkey`.
+Expected, four constraint rows — `blocks_doctor_id_fkey`, `blocks_no_overlap`,
+`blocks_pkey`, `blocks_time_valid` — and three index rows —
+`blocks_doctor_id_start_at_end_at_idx`, `blocks_no_overlap`, `blocks_pkey`. The
+exclusion constraint appears in both lists because it *is* a GiST index.
 
 - [ ] **Step 5: Verify the check rejects a zero-length block**
 
@@ -2269,6 +2307,23 @@ Expected: `ERROR:  new row for relation "blocks" violates check constraint "bloc
 
 The constraint is `end_at > start_at`, not `>=`, so an empty block is rejected
 rather than stored as a row that blocks nothing.
+
+Then verify the exclusion constraint, which needs a real `doctor_id` because it
+takes two rows to violate:
+
+```bash
+docker compose exec postgres psql -U clinic -d clinic -c "BEGIN; INSERT INTO blocks (doctor_id, start_at, end_at) SELECT id, '2026-09-06T07:00:00Z', '2026-09-06T09:00:00Z' FROM doctors LIMIT 1; INSERT INTO blocks (doctor_id, start_at, end_at) SELECT id, '2026-09-06T08:00:00Z', '2026-09-06T10:00:00Z' FROM doctors LIMIT 1; ROLLBACK;"
+docker compose exec postgres psql -U clinic -d clinic -c "BEGIN; INSERT INTO blocks (doctor_id, start_at, end_at) SELECT id, '2026-09-06T07:00:00Z', '2026-09-06T09:00:00Z' FROM doctors LIMIT 1; INSERT INTO blocks (doctor_id, start_at, end_at) SELECT id, '2026-09-06T09:00:00Z', '2026-09-06T10:00:00Z' FROM doctors LIMIT 1; ROLLBACK;"
+```
+
+Expected: the first pair fails on the second insert with
+`ERROR:  conflicting key value violates exclusion constraint "blocks_no_overlap"`,
+and the second pair succeeds — 09:00 touches but does not overlap 07:00–09:00
+under the half-open bound. Both transactions roll back either way.
+
+This needs at least one row in `doctors`. If the table is empty the `SELECT`
+inserts nothing and neither statement errors, which proves nothing; run it again
+after Task 7's e2e suite has seeded a doctor.
 
 - [ ] **Step 6: Verify the migration is reversible**
 
@@ -2556,17 +2611,33 @@ describe('BlocksService.create', () => {
     });
   });
 
-  it('allows a block that overlaps an existing one, without even querying for overlaps', async () => {
+  it('rejects a block overlapping an existing one', async () => {
     const { repository, service } = makeService();
+    repository.findOverlapping.mockResolvedValue([blockRow()]);
+
+    const error = await rejection(
+      service.create(DOCTOR_ID, {
+        startAt: '2026-09-06T08:00:00Z',
+        endAt: '2026-09-06T10:00:00Z',
+        reason: 'emergency',
+      }),
+    );
+
+    expect(error).toBeInstanceOf(ConflictError);
+    expect((error as ConflictError).code).toBe(ErrorCode.BlockOverlap);
+    expect(repository.insert).not.toHaveBeenCalled();
+  });
+
+  it('allows a block that only touches an existing one', async () => {
+    const { repository, service } = makeService();
+    repository.findOverlapping.mockResolvedValue([]);
 
     await service.create(DOCTOR_ID, {
-      startAt: '2026-09-06T08:00:00Z',
+      startAt: '2026-09-06T09:00:00Z',
       endAt: '2026-09-06T10:00:00Z',
-      reason: 'emergency',
     });
 
     expect(repository.insert).toHaveBeenCalled();
-    expect(repository.findOverlapping).not.toHaveBeenCalled();
   });
 });
 
@@ -2592,10 +2663,17 @@ describe('BlocksService.remove', () => {
 });
 ```
 
-The "allows a block that overlaps" test asserts that `findOverlapping` is *not*
-called. That is the executable form of the decision in `docs/DECISIONS.md` #12:
-a vacation day with an emergency inside it must be accepted, so the next person
-to read the service cannot add an overlap rejection without a test turning red.
+The pair of overlap tests is the executable form of `docs/DECISIONS.md` #18. The
+first proves an overlapping block is refused with a specific code rather than
+stored; the second pins the boundary, so a future change to `>=` somewhere cannot
+start rejecting a doctor's back-to-back absences without a test turning red.
+
+`findOverlapping` here produces the readable 409. The guarantee is
+`blocks_no_overlap` in the database — the same relationship booking has between
+its pre-checks and its exclusion constraint. Blocks carry no concurrency
+pressure, though: a doctor is not racing themselves to create the same absence
+twice, so the pre-check answers in practice and the constraint exists so the
+table cannot be wrong regardless of who writes to it.
 
 - [ ] **Step 4: Run the test to verify it fails**
 
@@ -2608,7 +2686,7 @@ Create `src/blocks/blocks.service.ts`:
 
 ```ts
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { BadRequestError } from '../common/errors/app.exception';
+import { BadRequestError, ConflictError } from '../common/errors/app.exception';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { Block } from './block.entity';
 import { BlocksRepository } from './blocks.repository';
@@ -2642,10 +2720,18 @@ export class BlocksService {
       );
     }
 
-    // Overlapping blocks are allowed on purpose. A vacation day with an
-    // emergency block inside it is legal and likely; Plan 8's capacity query
-    // merges blocks with range_agg before subtracting them, so the overlap
-    // cannot be double-counted. See docs/DECISIONS.md #12.
+    // One period of unavailability is one row (docs/DECISIONS.md #18). This
+    // lookup is half-open, so a block that merely touches another is fine. The
+    // invariant itself is blocks_no_overlap; this check exists to answer with a
+    // readable 409 instead of a constraint violation.
+    const overlapping = await this.repository.findOverlapping(doctorId, startAt, endAt);
+    if (overlapping.length > 0) {
+      throw new ConflictError(
+        ErrorCode.BlockOverlap,
+        'This period overlaps an existing block for this doctor.',
+      );
+    }
+
     return this.repository.insert({
       doctorId,
       startAt,
@@ -2675,7 +2761,7 @@ export class BlocksService {
 - [ ] **Step 6: Run the test to verify it passes**
 
 Run: `npx jest src/blocks/blocks.service.spec.ts`
-Expected: PASS — 7 tests.
+Expected: PASS — 8 tests.
 
 - [ ] **Step 7: Commit**
 
@@ -2848,25 +2934,46 @@ describe('Blocks API', () => {
       expect(response.body.code).toBe('VALIDATION_FAILED');
     });
 
-    it('accepts a block overlapping an existing one, because a vacation can contain an emergency', async () => {
+    it('rejects a block overlapping an existing one', async () => {
       await post(doctorA, doctorA.doctorId!, {
         startAt: '2026-09-06T00:00:00Z',
         endAt: '2026-09-07T00:00:00Z',
         reason: 'vacation',
       }).expect(201);
 
-      await post(doctorA, doctorA.doctorId!, {
+      const response = await post(doctorA, doctorA.doctorId!, {
         startAt: '2026-09-06T08:00:00Z',
         endAt: '2026-09-06T09:30:00Z',
         reason: 'emergency',
-      }).expect(201);
+      }).expect(409);
+
+      expect(response.body.code).toBe('BLOCK_OVERLAP');
 
       const list = await request(app.getHttpServer())
         .get(`/doctors/${doctorA.doctorId}/blocks`)
         .set('Authorization', `Bearer ${doctorA.token}`)
         .expect(200);
 
-      expect(list.body).toHaveLength(2);
+      expect(list.body).toHaveLength(1);
+    });
+
+    it('accepts a block that starts exactly when another ends', async () => {
+      await post(doctorA, doctorA.doctorId!, {
+        startAt: '2026-09-06T07:00:00Z',
+        endAt: '2026-09-06T09:00:00Z',
+        reason: 'emergency',
+      }).expect(201);
+
+      await post(doctorA, doctorA.doctorId!, {
+        startAt: '2026-09-06T09:00:00Z',
+        endAt: '2026-09-06T11:00:00Z',
+        reason: 'emergency',
+      }).expect(201);
+    });
+
+    it('lets two doctors block the same period', async () => {
+      await post(doctorA, doctorA.doctorId!, validBody).expect(201);
+      await post(doctorB, doctorB.doctorId!, validBody).expect(201);
     });
 
     it('forbids a doctor from writing another doctor blocks', async () => {
@@ -3107,7 +3214,7 @@ export class AppModule {}
 - [ ] **Step 6: Run the e2e test to verify it passes**
 
 Run: `npx jest --config ./test/jest-e2e.json test/blocks.e2e-spec.ts`
-Expected: PASS — 19 tests.
+Expected: PASS — 21 tests.
 
 - [ ] **Step 7: Run the full suite and the linter**
 
@@ -3117,10 +3224,10 @@ npm run test:e2e
 npm run lint
 ```
 
-Expected: `npm test` passes, including the 42 unit tests added by this plan
+Expected: `npm test` passes, including the 43 unit tests added by this plan
 (10 in `time-of-day.spec.ts`, 12 in `schedule-overlap.spec.ts`, 13 in
-`schedules.service.spec.ts`, 7 in `blocks.service.spec.ts`). `npm run test:e2e`
-passes all three suites — `health` (1 test), `schedules` (26) and `blocks` (19).
+`schedules.service.spec.ts`, 8 in `blocks.service.spec.ts`). `npm run test:e2e`
+passes all three suites — `health` (1 test), `schedules` (26) and `blocks` (21).
 `npm run lint` reports no errors.
 
 - [ ] **Step 8: Commit**
@@ -3134,21 +3241,21 @@ git commit -m "feat(blocks): expose doctor block endpoints behind the ownership 
 
 ## Definition of Done
 
-- [ ] `npm test` passes, including the 42 unit tests added by this plan.
+- [ ] `npm test` passes, including the 43 unit tests added by this plan.
 - [ ] `npm run test:e2e` passes `health.e2e-spec.ts` (1 test),
-      `schedules.e2e-spec.ts` (26) and `blocks.e2e-spec.ts` (19) against
+      `schedules.e2e-spec.ts` (26) and `blocks.e2e-spec.ts` (21) against
       `clinic_test`.
 - [ ] `npm run migration:revert` twice, then `npm run migration:run`, succeeds
       and `npm run typeorm -- migration:show` lists `CreateSchedules` then
       `CreateBlocks` last, both `[X]`.
-- [ ] All four contract constraint names exist with the exact documented
+- [ ] All five contract constraint names exist with the exact documented
       spelling:
 
 ```bash
-docker compose exec postgres psql -U clinic -d clinic -c "SELECT conname FROM pg_constraint WHERE conname IN ('schedules_slot_duration_valid','schedules_time_valid','schedules_day_of_week_valid','blocks_time_valid') ORDER BY conname;"
+docker compose exec postgres psql -U clinic -d clinic -c "SELECT conname FROM pg_constraint WHERE conname IN ('schedules_slot_duration_valid','schedules_time_valid','schedules_day_of_week_valid','blocks_time_valid','blocks_no_overlap') ORDER BY conname;"
 ```
 
-Expected: exactly four rows.
+Expected: exactly five rows.
 
 - [ ] The `day_of_week` column carries its explanatory comment:
 

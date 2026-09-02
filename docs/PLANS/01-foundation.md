@@ -22,7 +22,8 @@ Luxon, Jest 30, Supertest, Docker Compose.
   schema changes go through migrations. (`docs/STACK.md`)
 - PostgreSQL major version **16**. `range_agg` requires 14+; the analytics query
   depends on it. (`docs/INFRASTRUCTURE/Deployment.md`)
-- Redis major version **7**, started with `--appendonly yes` and a named volume.
+- Redis major version **7**, started with default options and **no** volume. Its
+  data is disposable. (`docs/DECISIONS.md` #14)
 - All configuration comes from environment variables. Nothing hardcoded. A
   committed `.env.example` lists every variable. (`docs/DEVELOPMENT.md`)
 - `CLINIC_TZ` defines the single clinic timezone and must be a valid IANA zone.
@@ -183,11 +184,10 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: ['redis-server', '--appendonly', 'yes']
     ports:
       - '6379:6379'
-    volumes:
-      - redisdata:/data
+    # No volume and no persistence: Redis holds delayed jobs, which are timers,
+    # not records. Plan 6's sweeper re-derives them from PostgreSQL.
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
@@ -196,11 +196,11 @@ services:
 
 volumes:
   pgdata:
-  redisdata:
 ```
 
-Redis uses `--appendonly yes` with a named volume because delayed reminder jobs
-exist only in Redis until they fire. See
+Redis is deliberately disposable. Delayed reminder jobs exist only in Redis until
+they fire, but every reminder also has a `PENDING` `notifications` row in
+PostgreSQL, so a restart costs at most one sweep interval. See
 `docs/INFRASTRUCTURE/Deployment.md`.
 
 - [ ] **Step 4: Start the services and verify both are healthy**

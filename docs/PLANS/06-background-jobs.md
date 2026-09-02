@@ -35,7 +35,8 @@ acts on current data.
   (`RECONCILE_EVERY_MS`). (`docs/DECISIONS.md` #17)
 - Workers run as a **separate service** from the API. Processors must never be
   registered in the API bootstrap. (`docs/DECISIONS.md` #13)
-- Redis runs with `--appendonly yes` on a named volume. (`docs/DECISIONS.md` #14)
+- Redis runs without persistence and without a volume. Delayed jobs are timers,
+  not records; the sweeper re-derives them. (`docs/DECISIONS.md` #14)
 - Every migration is reversible, and reversibility is verified before commit.
 - Commit messages follow `docs/DEVELOPMENT.md`, e.g.
   `feat(jobs): add appointment reminder processor`.
@@ -136,8 +137,9 @@ enqueue-inside-transaction — the *database still records the intent*. A
 a durable, queryable description of undone work. The sweeper re-derives exactly
 that set every 60 seconds, so a lost job costs a bounded delay instead of
 silence. It also covers a case no enqueue ordering can: delayed BullMQ jobs live
-only in Redis, so `docker compose restart redis` without persistence would drop
-every scheduled reminder in the system.
+only in Redis, and Redis runs without persistence, so `docker compose restart
+redis` drops the whole delayed set. That is why the sweeper queries
+`notifications` rather than inspecting the queue.
 
 **3. Transactional outbox: considered, rejected.** Writing job intents to an
 `outbox` table in the same transaction and draining it with a poller is strictly
@@ -2466,18 +2468,25 @@ Expected: no output. On a POSIX shell use
 processor lines, `ProcessorsModule` has leaked into `AppModule` and both
 replicas are now workers.
 
-- [ ] **Step 8: Verify a reminder survives a Redis restart**
+- [ ] **Step 8: Verify what a Redis restart does and does not lose**
 
 ```bash
 docker compose exec redis redis-cli --scan --pattern 'bull:reminders:*' | Measure-Object -Line
 docker compose restart redis
 docker compose exec redis redis-cli --scan --pattern 'bull:reminders:*' | Measure-Object -Line
+docker compose exec postgres psql -U clinic -d clinic -c "SELECT status, scheduled_at FROM notifications WHERE type = 'REMINDER' ORDER BY scheduled_at LIMIT 5;"
 ```
 
-Expected: the same non-zero count before and after, provided at least one
-appointment has been booked. This is what `--appendonly yes` plus the named
-volume buys (`docs/DECISIONS.md` #14). If the stack has no appointments yet, run
-this step again after Task 6's end-to-end check.
+Expected, provided at least one appointment has been booked: a non-zero count
+before, **zero** after, and the `notifications` rows still `PENDING` with their
+`scheduled_at` intact. Redis carries no persistence by decision
+(`docs/DECISIONS.md` #14), so the restart takes the timer and leaves the record.
+
+Nothing re-sends those reminders yet; the sweeper that does is Task 6. Run the
+`notifications` query again after Task 6's end-to-end check to watch a due row
+reach `SENT` without its delayed job ever coming back. That is the recovery path
+this plan is built around, and it is the more interesting thing to show in the
+recording.
 
 - [ ] **Step 9: Commit**
 
@@ -3197,7 +3206,9 @@ than asserted.
 Note: `flushall` also removes the job scheduler, so restart the worker
 (`docker compose restart worker`) to re-register it. That restart is exactly
 what a real Redis outage would require, and it is why the durable record lives
-in PostgreSQL.
+in PostgreSQL. Because Redis carries no persistence (`docs/DECISIONS.md` #14),
+`docker compose restart redis` produces the same starting state as `flushall`;
+`flushall` is used here only because it does not also restart the container.
 
 - [ ] **Step 11: Run the whole suite**
 

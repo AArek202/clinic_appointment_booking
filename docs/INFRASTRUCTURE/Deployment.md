@@ -16,7 +16,7 @@ api        → NestJS HTTP, 2 replicas
 worker     → BullMQ processors, 1 replica
 migrate    → one-shot, runs migrations then exits 0
 postgres   → PostgreSQL 16, named volume
-redis      → Redis 7, appendonly, named volume
+redis      → Redis 7, no persistence, no volume
 ```
 
 Two more stay behind compose profiles and do not run by default:
@@ -59,26 +59,35 @@ concurrently. They are; see `docs/INFRASTRUCTURE/BackgroundJobs.md`.
 
 ---
 
-# Decision: Redis runs with appendonly persistence and a named volume
+# Decision: Redis runs without persistence
 
-`redis` is started with `--appendonly yes` and its data directory is a named
-volume.
+`redis` is started with default options and no volume. Its data is disposable.
 
 ## Why
 
 Delayed BullMQ jobs — every appointment reminder — exist **only** in Redis until
-they fire. Without persistence, `docker compose restart redis` silently drops
-every scheduled reminder in the system.
+they fire, so `docker compose restart redis` does drop the delayed set. That is
+accepted, because it drops a timer and not a record.
 
-The reconciliation sweeper can rebuild that work from the `notifications` table,
-which is the real safety net. But a recovery path should not be needed for a
-routine restart, and demonstrating that the reminder survives a `docker compose
-restart redis` is a much stronger claim than explaining that it would eventually
-be re-derived.
+Every reminder has a `PENDING` row in `notifications` written inside the booking
+transaction, and the reconciliation sweeper sends anything whose `scheduled_at`
+has passed. After a restart, a reminder that was already due goes out on the next
+sweep — bounded by about a minute, the same bound already accepted for a job lost
+between commit and enqueue. Reminders still in the future are not affected at
+all: nothing needs to be rebuilt, because the sweeper will pick them up when
+their time comes.
 
-Redis remains a scheduler, not a store of record. PostgreSQL is the source of
-truth. Persistence here reduces how often the recovery path is exercised; it is
-not what makes the system correct.
+`--appendonly yes` on a named volume was the earlier decision and was reversed.
+It buys a shorter window on one restart path, and in exchange Redis holds a
+durable second copy of an intent that PostgreSQL already owns — state the project
+would then have to keep explaining it does not trust. Redis is a scheduler;
+PostgreSQL is the source of record. Leaving Redis disposable makes that true
+instead of aspirational.
+
+None of the correctness claims depend on this. "At most one reminder" comes from
+`UNIQUE (appointment_id, type)` and the conditional `PENDING -> SENT` update.
+"No reminder for a cancelled appointment" comes from the worker re-reading
+`appointments.status`.
 
 ---
 

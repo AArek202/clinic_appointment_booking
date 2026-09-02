@@ -80,11 +80,6 @@ Fields should include:
 - phone_number
 - date_of_birth
 - gender
-- has_insurance
-
-`has_insurance` is `BOOLEAN NOT NULL DEFAULT false`, not an enum or a nullable
-flag. It answers a yes/no question, and a three-state "yes / no / unknown"
-column would force every reader to decide what unknown means.
 
 ---
 
@@ -120,12 +115,13 @@ Allowed slot durations:
 
 ## blocks
 
-Represents unavailable dates/times.
+Represents dates/times when a doctor is unavailable. The cause may be planned,
+such as a vacation day, or unexpected — a personal or family emergency, an urgent
+hospital case, illness, an urgent work commitment, or anything else that stops
+the doctor attending appointments.
 
-Examples:
-
-- full vacation day
-- emergency
+A block prevents new bookings inside it. It does not alter appointments that were
+already confirmed.
 
 Fields should allow representing:
 
@@ -137,13 +133,16 @@ Fields should allow representing:
 
 Example:
 
-Sunday
-00:00 -> 00:00
+Sunday 00:00 -> Monday 00:00
 reason: vacation
 
-Monday
-10:00 -> 11:30
+Monday 10:00 -> 11:30
 reason: emergency
+
+A doctor's blocks may not overlap each other: one period of unavailability is one
+row. Enforced by `blocks_no_overlap` under "Database Constraints" below, not by
+an application check. Adjacent blocks are fine — the range bound is half-open, so
+10:00–11:00 followed by 11:00–12:00 is accepted.
 
 ---
 
@@ -267,6 +266,9 @@ appointments:
 blocks:
 
 - `(doctor_id, start_at, end_at)` — subtracting blocked periods during slot generation.
+- The `blocks_no_overlap` exclusion constraint (see below) also creates a GiST
+  index on `(doctor_id, tstzrange(start_at, end_at))`. It exists for the
+  invariant; the btree above is what the range lookup is measured against.
 
 waiting_list:
 
@@ -336,6 +338,13 @@ ALTER TABLE schedules ADD CONSTRAINT schedules_time_valid
 -- blocks: coherent window
 ALTER TABLE blocks ADD CONSTRAINT blocks_time_valid
   CHECK (end_at > start_at);
+
+-- blocks: one period of unavailability per row, per doctor
+ALTER TABLE blocks ADD CONSTRAINT blocks_no_overlap
+  EXCLUDE USING gist (
+    doctor_id WITH =,
+    tstzrange(start_at, end_at, '[)') WITH &&
+  );
 ```
 
 Two details that matter:
@@ -344,16 +353,20 @@ The range bound is `'[)'` — half-open. Start is inclusive, end is exclusive. W
 inclusive-inclusive bounds, back-to-back slots such as 10:00–10:30 and 10:30–11:00
 would be treated as overlapping and every consecutive booking would be rejected.
 
-The exclusion constraints are partial (`WHERE status = 'CONFIRMED'`). Cancelled
-rows are retained for analytics and must not block rebooking of the same slot.
+The two **appointment** exclusion constraints are partial
+(`WHERE status = 'CONFIRMED'`). Cancelled rows are retained for analytics and
+must not block rebooking of the same slot. `blocks_no_overlap` is not partial:
+`blocks` has no status column, and removing a block is a real delete.
 
-The two constraints are **named distinctly on purpose**. Both raise SQLSTATE
-`23P01`, but they mean different things and require different handling:
+All three exclusion constraints are **named distinctly on purpose**. They raise
+the same SQLSTATE, `23P01`, and mean different things:
 
 - `appointments_no_overlap` — the doctor's slot is taken. The booking failed and
   no retry will help.
 - `appointments_patient_no_overlap` — this patient is busy elsewhere at that
   time. The slot itself may still be free.
+- `blocks_no_overlap` — the doctor already has a block covering part of that
+  period. Nothing about appointments is involved.
 
 The error handler and the waiting-list job both branch on the constraint name.
 See `docs/INFRASTRUCTURE/Concurrency.md`.
@@ -367,6 +380,11 @@ PostgreSQL has no built-in range type over `time`, so preventing two overlapping
 `schedules` rows on the same weekday cannot use an exclusion constraint without
 defining a custom range type. That validation lives in the service layer instead.
 This is a deliberate, documented gap rather than an oversight.
+
+Note that `blocks` has the same shape of rule and does **not** share the gap:
+those columns are `timestamptz`, `tstzrange` exists, and `blocks_no_overlap`
+enforces it in the database. The gap is a limitation of the `time` type, not a
+preference for validating in the service layer.
 
 ---
 

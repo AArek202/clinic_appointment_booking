@@ -36,6 +36,12 @@ Examples:
 - a slot not aligned to the doctor's grid is rejected
 - `endAt` supplied by the client is ignored, never trusted
 
+## Blocks
+
+- a block overlapping an existing one for the same doctor is rejected
+- a block starting exactly when another ends is accepted
+- two doctors can block the same period
+
 ## Cancellation
 
 - patient can cancel their appointment
@@ -59,6 +65,7 @@ Use PostgreSQL where database behavior matters.
 Important database tests include:
 
 - appointment uniqueness
+- block non-overlap, including the half-open boundary
 - transaction behavior
 - waiting-list assignment
 - migrations
@@ -175,6 +182,11 @@ Reconciliation sweeper:
 - a cancelled slot with waiting entries but no enqueued job is picked up
 - a due PENDING notification whose job was lost is sent
 - running the sweeper twice produces no duplicate side effects
+
+Redis holds no persistence, so losing the delayed set is a supported case rather
+than an incident. Restarting Redis and then watching a due notification reach
+`SENT` is the manual check for it; the automated equivalent is the "job was lost"
+test above, which does not depend on Redis at all.
 
 ---
 

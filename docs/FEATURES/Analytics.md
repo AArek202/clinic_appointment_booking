@@ -247,12 +247,15 @@ blocked AS (
 
 Blocks are merged into a single multirange **before** being subtracted.
 
-This is not cosmetic. If a doctor has two overlapping blocks covering the same
-hour — entirely legal, and likely in practice, for example a vacation day that
-also has an emergency block inside it — then intersecting each block with the
-window separately subtracts that hour twice. Utilization can then exceed 100% or
-go negative. `range_agg` unions overlapping ranges automatically, so each blocked
-minute is subtracted exactly once.
+The failure this avoids is subtracting the same minute twice: intersecting each
+block with the window separately double-counts any time two blocks share, and
+utilization can then exceed 100% or go negative.
+
+A doctor's blocks cannot overlap — `blocks_no_overlap` rejects that at write time
+(`docs/DECISIONS.md` #18) — so no legal row can trigger it. The merge stays
+anyway, because `range_agg` plus multirange difference is one operator that is
+structurally incapable of subtracting a minute twice. It costs nothing, and it
+does not quietly depend on a constraint elsewhere in the schema staying in place.
 
 Each window intersects the merged multirange, and the intersection's duration is
 subtracted from that window's duration. Partial overlaps therefore subtract only

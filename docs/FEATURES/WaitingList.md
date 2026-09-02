@@ -16,7 +16,7 @@ They do not have to confirm.
 ## Assumptions (to be repeated in the README)
 
 1. Queue order is FIFO by `created_at`. Earliest entry wins.
-2. There is no priority tier. Insurance status, seniority and patient history do
+2. There is no priority tier. Seniority and patient history do
    not affect ordering.
 3. A patient may hold at most one active (`WAITING`) entry per slot. Enforced by
    a partial unique index, not just an application check.
