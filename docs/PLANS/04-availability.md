@@ -1178,8 +1178,10 @@ git commit -m "feat(availability): add doctor availability endpoint with range c
 - [ ] A block touching a slot boundary does not remove that slot.
 - [ ] A 63-day range returns 400 `DATE_RANGE_TOO_LARGE`; a 62-day range succeeds.
 - [ ] `grep -n "new Date()" src/availability/slot-generator.ts` returns nothing.
-- [ ] `grep -rn "Africa/Cairo" src/` returns nothing — the zone comes from
-      configuration only.
+- [ ] `grep -rn "Africa/Cairo" src/availability src/schedules src/blocks`
+      returns nothing — the zone comes from configuration only. The config
+      validator's example error message and `env.validation.spec.ts` fixture
+      are exempt.
 - [ ] `findBookedRanges` still returns `[]` and carries its
       `PLAN 5 INTEGRATION POINT` comment.
 

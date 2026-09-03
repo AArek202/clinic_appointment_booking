@@ -134,6 +134,27 @@ describe('Availability API', () => {
     ).toEqual(['2026-10-05T08:00:00.000Z', '2026-10-05T08:30:00.000Z']);
   });
 
+  it('lists slots across a multi-day range and excludes a block on the final day', async () => {
+    await createBlock(doctorId, '2026-10-12T07:00:00Z', '2026-10-12T08:00:00Z');
+
+    const response = await request(app.getHttpServer())
+      .get(`/doctors/${doctorId}/availability`)
+      .query({ from: '2026-10-05', to: '2026-10-12' }) // two Mondays
+      .set('Authorization', `Bearer ${patientToken}`)
+      .expect(200);
+
+    expect(
+      response.body.map((slot: { startAt: string }) => slot.startAt),
+    ).toEqual([
+      '2026-10-05T07:00:00.000Z',
+      '2026-10-05T07:30:00.000Z',
+      '2026-10-05T08:00:00.000Z',
+      '2026-10-05T08:30:00.000Z',
+      '2026-10-12T08:00:00.000Z',
+      '2026-10-12T08:30:00.000Z',
+    ]);
+  });
+
   it('rejects a range longer than 62 days', async () => {
     const response = await request(app.getHttpServer())
       .get(`/doctors/${doctorId}/availability`)
@@ -176,6 +197,16 @@ describe('Availability API', () => {
       .query({ from: '05-10-2026', to: '2026-10-05' })
       .set('Authorization', `Bearer ${patientToken}`)
       .expect(400);
+  });
+
+  it('rejects a calendar date that matches the format but is not a real day', async () => {
+    const response = await request(app.getHttpServer())
+      .get(`/doctors/${doctorId}/availability`)
+      .query({ from: '2026-02-30', to: '2026-10-05' })
+      .set('Authorization', `Bearer ${patientToken}`)
+      .expect(400);
+
+    expect(response.body.code).toBe('VALIDATION_FAILED');
   });
 
   it('returns 404 for an unknown doctor', async () => {
