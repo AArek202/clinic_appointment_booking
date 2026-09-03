@@ -16,6 +16,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { PatientsModule } from './patients/patients.module';
 import { SchedulesModule } from './schedules/schedules.module';
 import { UsersModule } from './users/users.module';
+import { WaitingListModule } from './waiting-list/waiting-list.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { UsersModule } from './users/users.module';
     AppointmentsModule,
     NotificationsModule,
     JobsModule,
+    WaitingListModule,
   ],
   providers: [
     // Order matters: authentication must populate request.user before
