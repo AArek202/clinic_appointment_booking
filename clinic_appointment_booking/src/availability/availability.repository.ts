@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { AppointmentsRepository } from '../appointments/appointments.repository';
 import { BlocksRepository } from '../blocks/blocks.repository';
 import { SchedulesRepository } from '../schedules/schedules.repository';
 import { ScheduleWindow, TimeRange } from './slot-generator';
@@ -8,6 +9,7 @@ export class AvailabilityRepository {
   constructor(
     private readonly schedules: SchedulesRepository,
     private readonly blocks: BlocksRepository,
+    private readonly appointments: AppointmentsRepository,
   ) {}
 
   doctorExists(doctorId: string): Promise<boolean> {
@@ -32,21 +34,14 @@ export class AvailabilityRepository {
   }
 
   /**
-   * PLAN 5 INTEGRATION POINT.
-   *
-   * The appointments table does not exist yet, so nothing is booked. Plan 5
-   * Task 6 replaces this body with:
-   *
-   *   return this.appointments.findBookedRanges(doctorId, fromAt, toAt);
-   *
-   * and adds AppointmentsModule to AvailabilityModule's imports. The
-   * signature must not change.
+   * Confirmed appointments overlapping the window. Cancelled rows are excluded
+   * by AppointmentsRepository, so a cancelled slot reappears here.
    */
-  async findBookedRanges(
-    _doctorId: string,
-    _fromAt: Date,
-    _toAt: Date,
+  findBookedRanges(
+    doctorId: string,
+    fromAt: Date,
+    toAt: Date,
   ): Promise<TimeRange[]> {
-    return [];
+    return this.appointments.findBookedRanges(doctorId, fromAt, toAt);
   }
 }
