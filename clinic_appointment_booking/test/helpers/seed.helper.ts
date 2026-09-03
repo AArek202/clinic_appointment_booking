@@ -92,8 +92,8 @@ export async function seedPatient(
   const patientId = randomUUID();
 
   await dataSource.query(
-    `INSERT INTO patients (id, user_id, phone_number, date_of_birth, gender, has_insurance)
-     VALUES ($1, $2, NULL, NULL, NULL, false)`,
+    `INSERT INTO patients (id, user_id, phone_number, date_of_birth, gender)
+     VALUES ($1, $2, NULL, NULL, NULL)`,
     [patientId, userId],
   );
 

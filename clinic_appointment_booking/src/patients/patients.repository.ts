@@ -34,7 +34,6 @@ export class PatientsRepository {
         phoneNumber: null,
         dateOfBirth: null,
         gender: null,
-        hasInsurance: false,
         ...params,
       }),
     );

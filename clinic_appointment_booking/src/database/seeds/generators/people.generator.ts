@@ -28,7 +28,6 @@ export const PATIENT_COLUMNS = [
   'phone_number',
   'date_of_birth',
   'gender',
-  'has_insurance',
 ];
 
 export interface SeededDoctor {
@@ -155,7 +154,6 @@ export function generatePeople(
           rng.int(1, 28),
         ).padStart(2, '0')}`,
         rng.pick(GENDERS),
-        rng.chance(0.45),
       ]),
     );
     patientIds.push(patientId);

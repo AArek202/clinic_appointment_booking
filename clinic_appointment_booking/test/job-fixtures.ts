@@ -53,7 +53,7 @@ async function insertUser(
 export async function seedPatient(dataSource: DataSource): Promise<string> {
   const userId = await insertUser(dataSource, 'PATIENT');
   const [row]: Array<{ id: string }> = await dataSource.query(
-    `INSERT INTO patients (user_id, has_insurance) VALUES ($1, false) RETURNING id`,
+    `INSERT INTO patients (user_id) VALUES ($1) RETURNING id`,
     [userId],
   );
   return row.id;
