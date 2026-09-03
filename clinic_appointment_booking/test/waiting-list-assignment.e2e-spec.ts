@@ -1,6 +1,7 @@
+import { getQueueToken } from '@nestjs/bullmq';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { Job } from 'bullmq';
+import { Job, Queue } from 'bullmq';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { AppointmentsService } from '../src/appointments/appointments.service';
@@ -11,6 +12,7 @@ import { WaitingListProcessor } from '../src/jobs/waiting-list.processor';
 import {
   JOB_PROCESS_SLOT,
   ProcessSlotJobData,
+  QUEUE_WAITING_LIST,
 } from '../src/jobs/queue.constants';
 import { NotificationsRepository } from '../src/notifications/notifications.repository';
 import { WaitingListRepository } from '../src/waiting-list/waiting-list.repository';
@@ -21,6 +23,7 @@ import {
   seedPatient,
   truncateAll,
 } from './helpers/seed.helper';
+import { flushTestRedis } from './redis-helper';
 
 // Fixture: Monday 10:00-16:00, 30-minute schedule. CLINIC_TZ is Africa/Cairo;
 // October is UTC+3, so 12:00 local is 09:00Z. 2026-10-05 is a Monday.
@@ -44,6 +47,7 @@ describe('WaitingListProcessor', () => {
   let app: INestApplication;
   let dataSource: DataSource;
   let processor: WaitingListProcessor;
+  let waitingListQueue: Queue;
   let clock: FixedClock;
   let adminToken: string;
   let doctorId: string;
@@ -78,6 +82,7 @@ describe('WaitingListProcessor', () => {
     await app.init();
 
     dataSource = app.get(DataSource);
+    waitingListQueue = app.get<Queue>(getQueueToken(QUEUE_WAITING_LIST));
     processor = new WaitingListProcessor(
       app.get(WaitingListRepository),
       app.get(AppointmentsService),
@@ -93,6 +98,7 @@ describe('WaitingListProcessor', () => {
 
   beforeEach(async () => {
     clock.set(NOW_BEFORE_SLOT);
+    await flushTestRedis();
     await truncateAll(dataSource);
 
     const jwt = createJwtService();
@@ -307,5 +313,40 @@ describe('WaitingListProcessor', () => {
     await cancelAs(patientAToken, appointment.id);
 
     await expect(processor.process(jobFor(doctorId, SLOT))).resolves.not.toThrow();
+  });
+
+  it('enqueues waiting-list processing after a cancellation commits', async () => {
+    const appointment = await bookAs(patientAToken, doctorId, SLOT);
+    await joinAs(patientBToken, doctorId, SLOT);
+
+    await cancelAs(patientAToken, appointment.id);
+
+    const jobs = await waitingListQueue.getJobs([
+      'waiting',
+      'delayed',
+      'active',
+      'completed',
+    ]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].data).toEqual({
+      doctorId,
+      slotStartAtIso: SLOT,
+    });
+  });
+
+  it('collapses duplicate enqueues for the same slot into one job', async () => {
+    const first = await bookAs(patientAToken, doctorId, SLOT);
+    await cancelAs(patientAToken, first.id);
+
+    const second = await bookAs(patientDToken, doctorId, SLOT);
+    await cancelAs(patientDToken, second.id);
+
+    const jobs = await waitingListQueue.getJobs([
+      'waiting',
+      'delayed',
+      'active',
+      'completed',
+    ]);
+    expect(jobs).toHaveLength(1);
   });
 });

@@ -10,6 +10,7 @@ import {
   PG_EXCLUSION_VIOLATION,
 } from '../common/errors/database-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
+import { JobsService } from '../jobs/jobs.service';
 import { SchedulesRepository } from '../schedules/schedules.repository';
 import { Appointment } from './appointment.entity';
 import { AppointmentsRepository } from './appointments.repository';
@@ -65,6 +66,10 @@ function makeService(transaction: jest.Mock) {
     getOrThrow: jest.fn().mockReturnValue('Africa/Cairo'),
   };
   const dataSource = { transaction };
+  const jobs = {
+    removeReminder: jest.fn().mockResolvedValue(undefined),
+    enqueueSlotProcessing: jest.fn().mockResolvedValue(undefined),
+  };
 
   const service = new AppointmentsService(
     appointments as unknown as AppointmentsRepository,
@@ -73,6 +78,7 @@ function makeService(transaction: jest.Mock) {
     clock,
     config as unknown as ConfigService,
     dataSource as unknown as DataSource,
+    jobs as unknown as JobsService,
   );
 
   return { service, transaction };
