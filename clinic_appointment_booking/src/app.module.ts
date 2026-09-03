@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { AppointmentsModule } from './appointments/appointments.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
@@ -27,6 +28,7 @@ import { UsersModule } from './users/users.module';
     SchedulesModule,
     BlocksModule,
     AvailabilityModule,
+    AppointmentsModule,
   ],
   providers: [
     // Order matters: authentication must populate request.user before

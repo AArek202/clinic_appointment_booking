@@ -31,11 +31,28 @@ export function createJwtService(): JwtService {
  * Clears every seeded row.
  *
  * `users` is the root of every foreign-key chain in this schema, so CASCADE
- * reaches doctors, patients, schedules and blocks. Tables added by later plans
- * hang off the same chain and need no change here.
+ * reaches doctors, patients, schedules, blocks and appointments. Tables added
+ * by later plans hang off the same chain and need no change here.
  */
 export async function truncateAll(dataSource: DataSource): Promise<void> {
   await dataSource.query('TRUNCATE TABLE users CASCADE');
+}
+
+/**
+ * Marks a confirmed appointment cancelled without going through the HTTP
+ * cancel endpoint (wired in Task 5). Used to prove the partial exclusion
+ * constraint lets the slot be rebooked.
+ */
+export async function cancelConfirmedAppointment(
+  dataSource: DataSource,
+  appointmentId: string,
+): Promise<void> {
+  await dataSource.query(
+    `UPDATE appointments
+        SET status = 'CANCELLED', cancelled_at = now()
+      WHERE id = $1 AND status = 'CONFIRMED'`,
+    [appointmentId],
+  );
 }
 
 async function insertUser(
