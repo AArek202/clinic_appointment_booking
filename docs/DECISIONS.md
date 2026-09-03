@@ -490,3 +490,30 @@ adjacent blocks such as 10:00–11:00 and 11:00–12:00 are still accepted. Bloc
 have no status column, so unlike the appointment constraints this one is not
 partial — deleting a block is a real delete, and there is no `PATCH`, so widening
 a block is delete-then-create.
+
+---
+
+## 19. Retry booking inserts that deadlock on the GiST exclusion index
+
+**Decided:** `AppointmentsService.book` retries the insert up to five times when
+PostgreSQL aborts it with `40P01` (deadlock detected). After a retry, a `23P01`
+on `appointments_no_overlap` still maps to `409 SLOT_ALREADY_BOOKED`. A deadlock
+that survives every attempt still surfaces as 500 — it is not remapped to 409.
+
+**Why this came up:** the concurrency proof fires ten overlapping inserts at two
+API replicas. The exclusion constraint held (exactly one confirmed row), but the
+nine losers returned 500 because PostgreSQL deadlocked while checking the GiST
+index (`where: while checking exclusion constraint on tuple …`) rather than
+finishing with `23P01`.
+
+**Alternatives considered:**
+
+- _Map `40P01` directly to 409._ Faster, and it would make this particular test
+  pass. Rejected because a deadlock is not proof the slot is taken — two
+  non-overlapping inserts can deadlock on index page locks. Retrying is what
+  PostgreSQL documents; after the winner commits, the loser's retry gets the
+  real `23P01`.
+- _`pg_advisory_xact_lock` around the insert._ Would serialize per doctor and
+  prevent the deadlock. Rejected as the primary protection in decision 4; adding
+  it now as a sidecar would protect only this code path and reopen that
+  decision for a problem retry already solves.

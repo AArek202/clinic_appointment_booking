@@ -96,6 +96,25 @@ Database structure must be managed using migrations.
 
 ---
 
+# Testing
+
+Unit and e2e tests run through `@swc/jest`, not `ts-jest`. Several NestJS
+packages (including `@nestjs/typeorm`) ship as ESM; `ts-jest` cannot load them
+when transforming test files. SWC transpiles without type-checking, so a passing
+test suite does not prove the TypeScript compiles.
+
+Run type-checking separately:
+
+```bash
+npm run typecheck
+```
+
+This uses `tsconfig.typecheck.json`, which includes both `src/` and `test/`.
+`npm run build` type-checks `src/` only (via `tsconfig.build.json`). Run both
+before declaring a plan complete.
+
+---
+
 # Git
 
 Use meaningful commits.

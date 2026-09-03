@@ -26,7 +26,7 @@
     ]
   },
   "transformIgnorePatterns": [
-    "/node_modules/(?!(@nestjs/config|@nestjs/typeorm|es-toolkit|@standard-schema)/)"
+    "/node_modules/(?!(@nestjs/config|@nestjs/typeorm|@nestjs/jwt|es-toolkit|@standard-schema)/)"
   ],
   "globalSetup": "<rootDir>/test/setup-db.ts",
   "maxWorkers": 1
