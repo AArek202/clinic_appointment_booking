@@ -83,6 +83,41 @@ describe('Availability API', () => {
       .expect(201);
   }
 
+  async function listAvailability(
+    targetDoctorId: string,
+    from: string,
+    to: string,
+  ): Promise<Array<{ startAt: string }>> {
+    const response = await request(app.getHttpServer())
+      .get(`/doctors/${targetDoctorId}/availability`)
+      .query({ from, to })
+      .set('Authorization', `Bearer ${patientToken}`)
+      .expect(200);
+
+    return response.body as Array<{ startAt: string }>;
+  }
+
+  async function bookAs(
+    token: string,
+    targetDoctorId: string,
+    startAt: string,
+  ): Promise<{ id: string }> {
+    const response = await request(app.getHttpServer())
+      .post('/appointments')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ doctorId: targetDoctorId, startAt })
+      .expect(201);
+
+    return response.body as { id: string };
+  }
+
+  async function cancelAs(token: string, appointmentId: string): Promise<void> {
+    await request(app.getHttpServer())
+      .post(`/appointments/${appointmentId}/cancel`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+  }
+
   it('lists slots for a single day', async () => {
     const response = await request(app.getHttpServer())
       .get(`/doctors/${doctorId}/availability`)
@@ -132,6 +167,33 @@ describe('Availability API', () => {
     expect(
       response.body.map((slot: { startAt: string }) => slot.startAt),
     ).toEqual(['2026-10-05T08:00:00.000Z', '2026-10-05T08:30:00.000Z']);
+  });
+
+  it('excludes a slot once it is booked', async () => {
+    const before = await listAvailability(doctorId, '2026-10-05', '2026-10-05');
+    expect(before.map((s) => s.startAt)).toContain('2026-10-05T07:00:00.000Z');
+
+    await bookAs(patientToken, doctorId, '2026-10-05T07:00:00.000Z');
+
+    const after = await listAvailability(doctorId, '2026-10-05', '2026-10-05');
+    expect(after.map((s) => s.startAt)).not.toContain(
+      '2026-10-05T07:00:00.000Z',
+    );
+    expect(after.length).toBe(before.length - 1);
+  });
+
+  it('shows the slot again after it is cancelled', async () => {
+    // 08:00Z is 11:00 clinic-local, on this fixture's 10:00-12:00 Monday grid.
+    // The plan's 09:00Z is 12:00 local, which is the exclusive window end.
+    const appointment = await bookAs(
+      patientToken,
+      doctorId,
+      '2026-10-05T08:00:00.000Z',
+    );
+    await cancelAs(patientToken, appointment.id);
+
+    const slots = await listAvailability(doctorId, '2026-10-05', '2026-10-05');
+    expect(slots.map((s) => s.startAt)).toContain('2026-10-05T08:00:00.000Z');
   });
 
   it('lists slots across a multi-day range and excludes a block on the final day', async () => {

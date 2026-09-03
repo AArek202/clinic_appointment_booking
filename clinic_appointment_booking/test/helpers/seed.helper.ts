@@ -31,8 +31,8 @@ export function createJwtService(): JwtService {
  * Clears every seeded row.
  *
  * `users` is the root of every foreign-key chain in this schema, so CASCADE
- * reaches doctors, patients, schedules and blocks. Tables added by later plans
- * hang off the same chain and need no change here.
+ * reaches doctors, patients, schedules, blocks and appointments. Tables added
+ * by later plans hang off the same chain and need no change here.
  */
 export async function truncateAll(dataSource: DataSource): Promise<void> {
   await dataSource.query('TRUNCATE TABLE users CASCADE');

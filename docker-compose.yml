@@ -67,8 +67,10 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
       CLINIC_TZ: ${CLINIC_TZ}
-    ports:
-      - '3000:3000'
+    # No `ports`: a published host port cannot be shared by replicas.
+    # All traffic arrives through nginx.
+    deploy:
+      replicas: 2
     depends_on:
       postgres:
         condition: service_healthy
@@ -84,6 +86,16 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - '8080:80'
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:

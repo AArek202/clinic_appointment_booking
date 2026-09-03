@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { BadRequestError, ConflictError } from '../common/errors/app.exception';
+import { isConstraintViolation } from '../common/errors/database-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { Block } from './block.entity';
 import { BlocksRepository } from './blocks.repository';
@@ -49,12 +50,22 @@ export class BlocksService {
       );
     }
 
-    return this.repository.insert({
-      doctorId,
-      startAt,
-      endAt,
-      reason: dto.reason ?? null,
-    });
+    try {
+      return await this.repository.insert({
+        doctorId,
+        startAt,
+        endAt,
+        reason: dto.reason ?? null,
+      });
+    } catch (error) {
+      if (isConstraintViolation(error, 'blocks_no_overlap')) {
+        throw new ConflictError(
+          ErrorCode.BlockOverlap,
+          'This period overlaps an existing block for this doctor.',
+        );
+      }
+      throw error;
+    }
   }
 
   async remove(doctorId: string, blockId: string): Promise<void> {
