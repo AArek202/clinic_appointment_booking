@@ -1,4 +1,13 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
 import { AuthUser } from '../auth/auth-user.interface';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -28,6 +37,33 @@ export class AppointmentsController {
       endAt: appointment.endAt.toISOString(),
       status: appointment.status,
       createdFrom: appointment.createdFrom,
+    };
+  }
+
+  @Roles(UserRole.Patient)
+  @Get('appointments/me')
+  async mine(@CurrentUser() user: AuthUser) {
+    const rows = await this.appointments.listForPatient(user.patientId!);
+    return rows.map((appointment) => ({
+      id: appointment.id,
+      doctorId: appointment.doctorId,
+      startAt: appointment.startAt.toISOString(),
+      endAt: appointment.endAt.toISOString(),
+      status: appointment.status,
+    }));
+  }
+
+  @Post('appointments/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  async cancel(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    const appointment = await this.appointments.cancel(id, user);
+    return {
+      id: appointment.id,
+      status: appointment.status,
+      cancelledAt: appointment.cancelledAt?.toISOString() ?? null,
     };
   }
 }

@@ -6,7 +6,6 @@ import { AppModule } from '../src/app.module';
 import { Clock, FixedClock } from '../src/common/clock/clock';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
 import {
-  cancelConfirmedAppointment,
   createJwtService,
   seedAdmin,
   seedDoctor,
@@ -122,10 +121,15 @@ describe('Appointments API (booking)', () => {
   }
 
   async function cancelAs(
-    _token: string,
+    token: string,
     appointmentId: string,
-  ): Promise<void> {
-    await cancelConfirmedAppointment(dataSource, appointmentId);
+  ): Promise<{ cancelledAt: string | null }> {
+    const response = await request(app.getHttpServer())
+      .post(`/appointments/${appointmentId}/cancel`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    return response.body as { cancelledAt: string | null };
   }
 
   it('books an available slot on the grid', async () => {
@@ -215,13 +219,15 @@ describe('Appointments API (booking)', () => {
   });
 
   it('allows rebooking a slot after it was cancelled', async () => {
-    const first = await bookAs(patientToken, doctorId, SLOT_START);
+    // 09:00Z is 3 hours ahead of the fixed clock, so HTTP cancel is allowed.
+    const slot = '2026-10-05T09:00:00.000Z';
+    const first = await bookAs(patientToken, doctorId, slot);
     await cancelAs(patientToken, first.id);
 
     await request(app.getHttpServer())
       .post('/appointments')
       .set('Authorization', `Bearer ${otherPatientToken}`)
-      .send({ doctorId, startAt: SLOT_START })
+      .send({ doctorId, startAt: slot })
       .expect(201);
   });
 
@@ -245,5 +251,96 @@ describe('Appointments API (booking)', () => {
       .expect(400);
 
     expect(response.body.code).toBe('SLOT_NOT_ON_GRID');
+  });
+
+  describe('cancellation', () => {
+    it('cancels an appointment more than 2 hours ahead', async () => {
+      // now = 06:00Z, appointment at 09:00Z -> 3 hours ahead
+      const appointment = await bookAs(
+        patientToken,
+        doctorId,
+        '2026-10-05T09:00:00.000Z',
+      );
+
+      const response = await request(app.getHttpServer())
+        .post(`/appointments/${appointment.id}/cancel`)
+        .set('Authorization', `Bearer ${patientToken}`)
+        .expect(200);
+
+      expect(response.body.status).toBe('CANCELLED');
+      expect(response.body.cancelledAt).not.toBeNull();
+    });
+
+    it('rejects cancelling less than 2 hours ahead', async () => {
+      // now = 06:00Z, appointment at 07:30Z -> 1.5 hours ahead
+      const appointment = await bookAs(
+        patientToken,
+        doctorId,
+        '2026-10-05T07:30:00.000Z',
+      );
+
+      const response = await request(app.getHttpServer())
+        .post(`/appointments/${appointment.id}/cancel`)
+        .set('Authorization', `Bearer ${patientToken}`)
+        .expect(409);
+
+      expect(response.body.code).toBe('CANCELLATION_WINDOW_PASSED');
+    });
+
+    it('allows cancelling at exactly 2 hours ahead', async () => {
+      // now = 06:00Z, appointment at 08:00Z -> exactly 2 hours
+      const appointment = await bookAs(
+        patientToken,
+        doctorId,
+        '2026-10-05T08:00:00.000Z',
+      );
+
+      await request(app.getHttpServer())
+        .post(`/appointments/${appointment.id}/cancel`)
+        .set('Authorization', `Bearer ${patientToken}`)
+        .expect(200);
+    });
+
+    it("rejects cancelling another patient's appointment", async () => {
+      const appointment = await bookAs(
+        patientToken,
+        doctorId,
+        '2026-10-05T09:00:00.000Z',
+      );
+
+      const response = await request(app.getHttpServer())
+        .post(`/appointments/${appointment.id}/cancel`)
+        .set('Authorization', `Bearer ${otherPatientToken}`)
+        .expect(403);
+
+      expect(response.body.code).toBe('NOT_APPOINTMENT_OWNER');
+    });
+
+    it('treats a repeated cancel as success and does not cancel twice', async () => {
+      const appointment = await bookAs(
+        patientToken,
+        doctorId,
+        '2026-10-05T09:00:00.000Z',
+      );
+
+      const first = await request(app.getHttpServer())
+        .post(`/appointments/${appointment.id}/cancel`)
+        .set('Authorization', `Bearer ${patientToken}`)
+        .expect(200);
+
+      const second = await request(app.getHttpServer())
+        .post(`/appointments/${appointment.id}/cancel`)
+        .set('Authorization', `Bearer ${patientToken}`)
+        .expect(200);
+
+      expect(second.body.cancelledAt).toBe(first.body.cancelledAt);
+    });
+
+    it('returns 404 for an unknown appointment', async () => {
+      await request(app.getHttpServer())
+        .post('/appointments/00000000-0000-0000-0000-000000000000/cancel')
+        .set('Authorization', `Bearer ${patientToken}`)
+        .expect(404);
+    });
   });
 });

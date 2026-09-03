@@ -1,11 +1,19 @@
-import { Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, EntityManager } from 'typeorm';
+import { AuthUser } from '../auth/auth-user.interface';
 import { resolveSlot } from '../availability/slot-generator';
 import { BlocksRepository } from '../blocks/blocks.repository';
 import { Clock } from '../common/clock/clock';
+import { CANCELLATION_WINDOW_HOURS } from '../common/constants';
 import { AppointmentSource } from '../common/enums/appointment-source.enum';
-import { BadRequestError, ConflictError } from '../common/errors/app.exception';
+import { AppointmentStatus } from '../common/enums/appointment-status.enum';
+import { UserRole } from '../common/enums/role.enum';
+import {
+  AppException,
+  BadRequestError,
+  ConflictError,
+} from '../common/errors/app.exception';
 import { isConstraintViolation } from '../common/errors/database-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { SchedulesRepository } from '../schedules/schedules.repository';
@@ -137,5 +145,62 @@ export class AppointmentsService {
       { ...params, createdFrom: AppointmentSource.WaitingList },
       manager,
     );
+  }
+
+  async cancel(appointmentId: string, actor: AuthUser): Promise<Appointment> {
+    const appointment = await this.appointments.findById(appointmentId);
+    if (!appointment) {
+      throw new NotFoundException('Appointment not found');
+    }
+
+    const isOwner = actor.patientId === appointment.patientId;
+    if (actor.role !== UserRole.Admin && !isOwner) {
+      throw new AppException(
+        ErrorCode.NotAppointmentOwner,
+        'You can only cancel your own appointments.',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (appointment.status === AppointmentStatus.Cancelled) {
+      // Idempotent: a retried request returns current state, not an error.
+      return appointment;
+    }
+
+    const hoursUntil =
+      (appointment.startAt.getTime() - this.clock.now().getTime()) /
+      (60 * 60 * 1000);
+    if (hoursUntil < CANCELLATION_WINDOW_HOURS) {
+      throw new ConflictError(
+        ErrorCode.CancellationWindowPassed,
+        `Appointments cannot be cancelled less than ${CANCELLATION_WINDOW_HOURS} hours in advance.`,
+      );
+    }
+
+    const affected = await this.appointments.cancelIfConfirmed(
+      appointmentId,
+      this.clock.now(),
+    );
+
+    if (affected === 0) {
+      // Someone cancelled it between our read and our write. Not an error.
+      const current = await this.appointments.findById(appointmentId);
+      return current!;
+    }
+
+    // PLAN 6 INTEGRATION POINT: after commit, best-effort remove the delayed
+    // reminder job, then enqueue WAITING_LIST_PROCESS for
+    // (doctorId, startAt). Never inside the transaction.
+
+    const updated = await this.appointments.findById(appointmentId);
+    return updated!;
+  }
+
+  listForPatient(patientId: string): Promise<Appointment[]> {
+    return this.appointments.listForPatient(patientId);
+  }
+
+  listForDoctor(doctorId: string): Promise<Appointment[]> {
+    return this.appointments.listForDoctor(doctorId);
   }
 }
