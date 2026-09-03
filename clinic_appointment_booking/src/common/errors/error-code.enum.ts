@@ -21,4 +21,5 @@ export enum ErrorCode {
   Forbidden = 'FORBIDDEN',
   NotFound = 'NOT_FOUND',
   InternalError = 'INTERNAL_ERROR',
+  EmailAlreadyRegistered = 'EMAIL_ALREADY_REGISTERED',
 }
