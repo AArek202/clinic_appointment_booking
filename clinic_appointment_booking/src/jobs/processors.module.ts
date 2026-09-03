@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { Appointment } from '../appointments/appointment.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { User } from '../users/user.entity';
 import { WaitingListModule } from '../waiting-list/waiting-list.module';
 import { WaitingListReconcilerAdapter } from '../waiting-list/waiting-list-reconciler.adapter';
 import { AppointmentReminderProcessor } from './appointment-reminder.processor';
@@ -24,7 +25,7 @@ import { WaitingListReconciler } from './waiting-list-reconciler';
     NotificationsModule,
     AppointmentsModule,
     WaitingListModule,
-    TypeOrmModule.forFeature([Appointment]),
+    TypeOrmModule.forFeature([Appointment, User]),
   ],
   providers: [
     AppointmentReminderProcessor,
