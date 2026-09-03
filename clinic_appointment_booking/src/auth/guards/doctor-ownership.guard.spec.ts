@@ -1,5 +1,7 @@
-import { ExecutionContext, ForbiddenException } from '@nestjs/common';
+import { ExecutionContext } from '@nestjs/common';
 import { UserRole } from '../../common/enums/role.enum';
+import { AppException } from '../../common/errors/app.exception';
+import { ErrorCode } from '../../common/errors/error-code.enum';
 import { AuthUser } from '../auth-user.interface';
 import { DoctorOwnershipGuard } from './doctor-ownership.guard';
 
@@ -29,18 +31,21 @@ describe('DoctorOwnershipGuard', () => {
   it("forbids a doctor acting on another doctor's record", () => {
     const user: AuthUser = { userId: 'u3', role: UserRole.Doctor, doctorId: doctorB };
 
-    expect(() => guard.canActivate(contextFor(user, doctorA))).toThrow(ForbiddenException);
+    expect(() => guard.canActivate(contextFor(user, doctorA))).toThrow(AppException);
+    expect(() => guard.canActivate(contextFor(user, doctorA))).toThrow(
+      expect.objectContaining({ code: ErrorCode.Forbidden }),
+    );
   });
 
   it('forbids a patient', () => {
     const user: AuthUser = { userId: 'u4', role: UserRole.Patient, patientId: 'p1' };
 
-    expect(() => guard.canActivate(contextFor(user, doctorA))).toThrow(ForbiddenException);
+    expect(() => guard.canActivate(contextFor(user, doctorA))).toThrow(AppException);
   });
 
   it('forbids a doctor with no linked profile', () => {
     const user: AuthUser = { userId: 'u5', role: UserRole.Doctor };
 
-    expect(() => guard.canActivate(contextFor(user, doctorA))).toThrow(ForbiddenException);
+    expect(() => guard.canActivate(contextFor(user, doctorA))).toThrow(AppException);
   });
 });

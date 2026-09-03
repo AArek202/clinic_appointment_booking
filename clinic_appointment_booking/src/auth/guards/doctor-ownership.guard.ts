@@ -1,10 +1,12 @@
 import {
   CanActivate,
   ExecutionContext,
-  ForbiddenException,
+  HttpStatus,
   Injectable,
 } from '@nestjs/common';
 import { UserRole } from '../../common/enums/role.enum';
+import { AppException } from '../../common/errors/app.exception';
+import { ErrorCode } from '../../common/errors/error-code.enum';
 import { AuthUser } from '../auth-user.interface';
 
 /**
@@ -35,6 +37,10 @@ export class DoctorOwnershipGuard implements CanActivate {
       return true;
     }
 
-    throw new ForbiddenException('You cannot act on this doctor');
+    throw new AppException(
+      ErrorCode.Forbidden,
+      'You cannot act on this doctor',
+      HttpStatus.FORBIDDEN,
+    );
   }
 }
