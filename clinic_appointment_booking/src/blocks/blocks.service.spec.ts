@@ -1,4 +1,5 @@
 import { NotFoundException } from '@nestjs/common';
+import { QueryFailedError } from 'typeorm';
 import { BadRequestError, ConflictError } from '../common/errors/app.exception';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { Block } from './block.entity';
@@ -117,6 +118,28 @@ describe('BlocksService.create', () => {
     expect(error).toBeInstanceOf(ConflictError);
     expect((error as ConflictError).code).toBe(ErrorCode.BlockOverlap);
     expect(repository.insert).not.toHaveBeenCalled();
+  });
+
+  it('maps blocks_no_overlap to BLOCK_OVERLAP when the insert races', async () => {
+    const { repository, service } = makeService();
+    repository.doctorExists.mockResolvedValue(true);
+    repository.findOverlapping.mockResolvedValue([]);
+    const driverError = Object.assign(new Error('conflicting key value'), {
+      code: '23P01',
+      constraint: 'blocks_no_overlap',
+    });
+    repository.insert.mockRejectedValue(
+      new QueryFailedError('INSERT ...', [], driverError),
+    );
+
+    const error = await rejection(
+      service.create(DOCTOR_ID, {
+        startAt: '2026-09-06T07:00:00Z',
+        endAt: '2026-09-06T08:00:00Z',
+      }),
+    );
+
+    expect(error).toMatchObject({ code: ErrorCode.BlockOverlap });
   });
 
   it('allows a block that only touches an existing one', async () => {
