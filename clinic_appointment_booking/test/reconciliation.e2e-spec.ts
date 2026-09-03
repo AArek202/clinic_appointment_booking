@@ -1,11 +1,15 @@
 import { getQueueToken } from '@nestjs/bullmq';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Queue } from 'bullmq';
+import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { Appointment } from '../src/appointments/appointment.entity';
+import { AppModule } from '../src/app.module';
 import { Clock, FixedClock } from '../src/common/clock/clock';
 import { ClockModule } from '../src/common/clock/clock.module';
+import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
 import { AppConfigModule } from '../src/config/config.module';
 import { DatabaseModule } from '../src/database/database.module';
 import { AppointmentReminderProcessor } from '../src/jobs/appointment-reminder.processor';
@@ -24,6 +28,17 @@ import {
   WaitingListReconciler,
 } from '../src/jobs/waiting-list-reconciler';
 import { NotificationsModule } from '../src/notifications/notifications.module';
+import { NotificationsRepository } from '../src/notifications/notifications.repository';
+import { WaitingListRepository } from '../src/waiting-list/waiting-list.repository';
+import { WaitingListReconcilerAdapter } from '../src/waiting-list/waiting-list-reconciler.adapter';
+import { JobsService } from '../src/jobs/jobs.service';
+import {
+  createJwtService,
+  seedAdmin,
+  seedDoctor,
+  seedPatient,
+  truncateAll,
+} from './helpers/seed.helper';
 import {
   cancelAppointment,
   insertPendingReminder,
@@ -264,10 +279,203 @@ describe('ReconciliationProcessor', () => {
     );
     expect(count).toBe('1');
 
-    const waitingJobs = await waitingList.getJobs(['waiting', 'delayed', 'active']);
+    const waitingJobs = await waitingList.getJobs([
+      'waiting',
+      'delayed',
+      'active',
+    ]);
     expect(waitingJobs).toHaveLength(1);
 
     await expect(reminders.getFailedCount()).resolves.toBe(0);
+  });
+});
+
+const WAITING_LIST_SLOT = '2026-10-05T09:00:00.000Z';
+const WAITING_LIST_NOW = new Date('2026-10-05T06:00:00.000Z');
+
+describe('WaitingListReconcilerAdapter', () => {
+  let app: INestApplication;
+  let reconciliation: ReconciliationProcessor;
+  let dataSource: DataSource;
+  let waitingListQueue: Queue;
+  let clock: FixedClock;
+  let adminToken: string;
+  let doctorId: string;
+  let patientAToken: string;
+  let patientBToken: string;
+  let patientDToken: string;
+
+  beforeAll(async () => {
+    clock = new FixedClock(WAITING_LIST_NOW);
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider(Clock)
+      .useValue(clock)
+      .compile();
+
+    app = moduleRef.createNestApplication();
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+    app.useGlobalFilters(new AllExceptionsFilter());
+    await app.init();
+
+    dataSource = app.get(DataSource);
+    waitingListQueue = app.get<Queue>(getQueueToken(QUEUE_WAITING_LIST));
+    reconciliation = new ReconciliationProcessor(
+      app.get(NotificationsRepository),
+      new WaitingListReconcilerAdapter(app.get(WaitingListRepository)),
+      app.get(JobsService),
+      clock,
+    );
+  });
+
+  afterAll(async () => {
+    if (app) {
+      await app.close();
+    }
+  });
+
+  beforeEach(async () => {
+    clock.set(WAITING_LIST_NOW);
+    await flushTestRedis();
+    await truncateAll(dataSource);
+
+    const jwt = createJwtService();
+    const admin = await seedAdmin(dataSource, jwt);
+    const doctor = await seedDoctor(dataSource, jwt);
+    const patientA = await seedPatient(dataSource, jwt);
+    const patientB = await seedPatient(dataSource, jwt);
+    const patientD = await seedPatient(dataSource, jwt);
+
+    adminToken = admin.token;
+    doctorId = doctor.doctorId!;
+    patientAToken = patientA.token;
+    patientBToken = patientB.token;
+    patientDToken = patientD.token;
+
+    await request(app.getHttpServer())
+      .post(`/doctors/${doctorId}/schedules`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        dayOfWeek: 1,
+        startTime: '10:00',
+        endTime: '16:00',
+        slotDurationMinutes: 30,
+      })
+      .expect(201);
+  });
+
+  async function bookAs(
+    token: string,
+    startAt: string,
+  ): Promise<{ id: string }> {
+    const response = await request(app.getHttpServer())
+      .post('/appointments')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ doctorId, startAt })
+      .expect(201);
+
+    return response.body as { id: string };
+  }
+
+  async function cancelAs(token: string, appointmentId: string): Promise<void> {
+    await request(app.getHttpServer())
+      .post(`/appointments/${appointmentId}/cancel`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+  }
+
+  async function joinAs(
+    token: string,
+    slotStartAt: string,
+    extra?: { expiresAt?: string },
+  ): Promise<void> {
+    await request(app.getHttpServer())
+      .post('/waiting-list')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ doctorId, slotStartAt, ...extra })
+      .expect(201);
+  }
+
+  it('recovers an assignment whose enqueue was lost', async () => {
+    const appointment = await bookAs(patientAToken, WAITING_LIST_SLOT);
+    await joinAs(patientBToken, WAITING_LIST_SLOT);
+
+    await dataSource.query(
+      `UPDATE appointments SET status = 'CANCELLED', cancelled_at = now() WHERE id = $1`,
+      [appointment.id],
+    );
+
+    await reconciliation.process();
+
+    const jobs = await waitingListQueue.getJobs([
+      'waiting',
+      'delayed',
+      'active',
+      'completed',
+    ]);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0].data).toEqual({
+      doctorId,
+      slotStartAtIso: WAITING_LIST_SLOT,
+    });
+  });
+
+  it('does not re-enqueue a slot that already has a confirmed booking', async () => {
+    const appointment = await bookAs(patientAToken, WAITING_LIST_SLOT);
+    await joinAs(patientBToken, WAITING_LIST_SLOT);
+    await cancelAs(patientAToken, appointment.id);
+    await bookAs(patientDToken, WAITING_LIST_SLOT);
+
+    await waitingListQueue.obliterate({ force: true });
+    await reconciliation.process();
+
+    const jobs = await waitingListQueue.getJobs([
+      'waiting',
+      'delayed',
+      'active',
+      'completed',
+    ]);
+    expect(jobs).toHaveLength(0);
+  });
+
+  it('expires entries whose deadline has passed', async () => {
+    await bookAs(patientAToken, WAITING_LIST_SLOT);
+    await joinAs(patientBToken, WAITING_LIST_SLOT, {
+      expiresAt: '2026-10-05T05:00:00.000Z',
+    });
+
+    await reconciliation.process();
+
+    const [entry] = await dataSource.query(`SELECT status FROM waiting_list`);
+    expect(entry.status).toBe('EXPIRED');
+  });
+
+  it('is safe to run twice', async () => {
+    const appointment = await bookAs(patientAToken, WAITING_LIST_SLOT);
+    await joinAs(patientBToken, WAITING_LIST_SLOT);
+    await dataSource.query(
+      `UPDATE appointments SET status = 'CANCELLED', cancelled_at = now() WHERE id = $1`,
+      [appointment.id],
+    );
+
+    await reconciliation.process();
+    await reconciliation.process();
+
+    const jobs = await waitingListQueue.getJobs([
+      'waiting',
+      'delayed',
+      'active',
+      'completed',
+    ]);
+    expect(jobs).toHaveLength(1);
   });
 });
 
