@@ -57,4 +57,21 @@ export class AnalyticsRepository {
       utilizationRate: Number(row.utilization_rate),
     };
   }
+
+  /**
+   * Existence check for the 404 in AnalyticsService.
+   *
+   * It lives here rather than on DoctorsService so the analytics feature owns
+   * every query it makes, and it is a separate statement rather than a join
+   * inside the analytics query because "this doctor does not exist" and "this
+   * doctor has no data" are different answers with different status codes.
+   */
+  async doctorExists(doctorId: string): Promise<boolean> {
+    const rows: unknown[] = await this.dataSource.query(
+      'SELECT 1 FROM doctors WHERE id = $1',
+      [doctorId],
+    );
+
+    return rows.length > 0;
+  }
 }
