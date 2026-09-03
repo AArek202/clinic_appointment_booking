@@ -101,6 +101,12 @@ Normal booking:
 5. PostgreSQL enforces non-overlap.
 6. If the constraint rejects the insert, return 409 Conflict.
 
+Concurrent inserts into the same GiST exclusion index can deadlock (`40P01`)
+before either statement finishes with `23P01`. PostgreSQL aborts one
+transaction; the documented response is to retry it. After the winner commits,
+the retry hits the constraint and maps as below. Do not map `40P01` itself to
+409: a deadlock can also happen between writes that do not overlap.
+
 ## Error mapping
 
 The insert is attempted and the failure is handled. There is no
@@ -206,9 +212,14 @@ requests at nginx.
 Expected assertions — all three, not just the first:
 
 1. Exactly one request returns 201.
-2. Every other request returns 409, not 500. A 500 means the constraint fired but
-   the error mapping did not.
+2. Every other request returns 409, not 500. A 500 means the constraint fired
+   (or a deadlock was not retried) but the error mapping did not.
 3. The database contains exactly one CONFIRMED appointment for that slot.
+
+This was observed to fail. Dropping `appointments_no_overlap` produced ten
+201s and ten confirmed rows for the same slot; restoring the constraint
+restored one 201 and nine 409s. A concurrency test that has never been
+observed failing is not evidence of anything.
 
 Example expectation:
 

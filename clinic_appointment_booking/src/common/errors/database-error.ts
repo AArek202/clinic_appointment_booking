@@ -4,6 +4,9 @@ export const PG_UNIQUE_VIOLATION = '23505';
 /** Exclusion constraint violated. */
 export const PG_EXCLUSION_VIOLATION = '23P01';
 
+/** Deadlock detected. Concurrent GiST exclusion checks can raise this. */
+export const PG_DEADLOCK_DETECTED = '40P01';
+
 interface DriverErrorShape {
   code?: string;
   constraint?: string;
@@ -52,4 +55,9 @@ export function isConstraintViolation(
     details.code === PG_EXCLUSION_VIOLATION;
 
   return isViolation && details.constraint === constraint;
+}
+
+/** True when PostgreSQL aborted the statement because of a deadlock. */
+export function isDeadlock(error: unknown): boolean {
+  return getSqlState(error) === PG_DEADLOCK_DETECTED;
 }

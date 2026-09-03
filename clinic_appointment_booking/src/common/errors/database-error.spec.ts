@@ -3,6 +3,8 @@ import {
   getConstraintName,
   getSqlState,
   isConstraintViolation,
+  isDeadlock,
+  PG_DEADLOCK_DETECTED,
   PG_EXCLUSION_VIOLATION,
 } from './database-error';
 
@@ -51,5 +53,17 @@ describe('database error helpers', () => {
   it('returns undefined for a non-database error', () => {
     expect(getSqlState(new Error('nope'))).toBeUndefined();
     expect(getConstraintName(new Error('nope'))).toBeUndefined();
+  });
+
+  it('detects a deadlock and does not treat it as a constraint violation', () => {
+    const deadlock = pgError(PG_DEADLOCK_DETECTED, '');
+
+    expect(isDeadlock(deadlock)).toBe(true);
+    expect(
+      isDeadlock(pgError(PG_EXCLUSION_VIOLATION, 'appointments_no_overlap')),
+    ).toBe(false);
+    expect(isConstraintViolation(deadlock, 'appointments_no_overlap')).toBe(
+      false,
+    );
   });
 });

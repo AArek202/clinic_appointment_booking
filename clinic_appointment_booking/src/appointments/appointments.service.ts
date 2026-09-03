@@ -14,7 +14,10 @@ import {
   BadRequestError,
   ConflictError,
 } from '../common/errors/app.exception';
-import { isConstraintViolation } from '../common/errors/database-error';
+import {
+  isConstraintViolation,
+  isDeadlock,
+} from '../common/errors/database-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { SchedulesRepository } from '../schedules/schedules.repository';
 import { Appointment } from './appointment.entity';
@@ -22,6 +25,19 @@ import { AppointmentsRepository } from './appointments.repository';
 
 const DOCTOR_OVERLAP = 'appointments_no_overlap';
 const PATIENT_OVERLAP = 'appointments_patient_no_overlap';
+
+// Concurrent inserts into a GiST exclusion index can deadlock (40P01) before
+// either statement finishes with 23P01. Postgres aborts one transaction; the
+// documented response is to retry. After the winner commits, the retry hits
+// the constraint and maps to 409. Mapping 40P01 itself to "slot booked" would
+// be wrong: a deadlock can also happen between writes that do not overlap.
+const INSERT_DEADLOCK_ATTEMPTS = 8;
+
+function deadlockBackoffMs(attempt: number): number {
+  const baseMs = 25 * 2 ** (attempt - 1);
+  const jitterMs = Math.floor(Math.random() * 25);
+  return Math.min(baseMs + jitterMs, 400);
+}
 
 @Injectable()
 export class AppointmentsService {
@@ -86,50 +102,63 @@ export class AppointmentsService {
       );
     }
 
-    try {
-      const appointment = await this.dataSource.transaction(async (manager) => {
-        const created = await this.appointments.insertConfirmed(
-          {
-            doctorId,
-            patientId,
-            startAt: slot.startAt,
-            endAt: slot.endAt,
-            createdFrom: AppointmentSource.Direct,
+    for (let attempt = 1; attempt <= INSERT_DEADLOCK_ATTEMPTS; attempt++) {
+      try {
+        const appointment = await this.dataSource.transaction(
+          async (manager) => {
+            const created = await this.appointments.insertConfirmed(
+              {
+                doctorId,
+                patientId,
+                startAt: slot.startAt,
+                endAt: slot.endAt,
+                createdFrom: AppointmentSource.Direct,
+              },
+              manager,
+            );
+
+            // PLAN 6 INTEGRATION POINT: create the PENDING REMINDER notification
+            // row here, inside this transaction, with
+            // scheduledAt = startAt - REMINDER_LEAD_HOURS.
+            return created;
           },
-          manager,
         );
 
-        // PLAN 6 INTEGRATION POINT: create the PENDING REMINDER notification
-        // row here, inside this transaction, with
-        // scheduledAt = startAt - REMINDER_LEAD_HOURS.
-        return created;
-      });
+        // PLAN 6 INTEGRATION POINT: after the transaction commits, enqueue the
+        // delayed reminder job. Never inside the transaction.
+        return appointment;
+      } catch (error) {
+        // Layer 2: the database is the final authority. Both constraints raise
+        // 23P01, so branch on the name -- one means the slot is gone, the other
+        // means this patient is busy elsewhere.
+        if (isConstraintViolation(error, DOCTOR_OVERLAP)) {
+          throw new ConflictError(
+            ErrorCode.SlotAlreadyBooked,
+            'This slot has just been booked by another patient.',
+            { waitingListAvailable: true },
+          );
+        }
 
-      // PLAN 6 INTEGRATION POINT: after the transaction commits, enqueue the
-      // delayed reminder job. Never inside the transaction.
-      return appointment;
-    } catch (error) {
-      // Layer 2: the database is the final authority. Both constraints raise
-      // 23P01, so branch on the name -- one means the slot is gone, the other
-      // means this patient is busy elsewhere.
-      if (isConstraintViolation(error, DOCTOR_OVERLAP)) {
-        throw new ConflictError(
-          ErrorCode.SlotAlreadyBooked,
-          'This slot has just been booked by another patient.',
-          { waitingListAvailable: true },
-        );
+        if (isConstraintViolation(error, PATIENT_OVERLAP)) {
+          throw new ConflictError(
+            ErrorCode.PatientAlreadyBooked,
+            'You already have an appointment at this time.',
+          );
+        }
+
+        if (isDeadlock(error) && attempt < INSERT_DEADLOCK_ATTEMPTS) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, deadlockBackoffMs(attempt)),
+          );
+          continue;
+        }
+
+        // Anything else is a real fault and must not be reported as a conflict.
+        throw error;
       }
-
-      if (isConstraintViolation(error, PATIENT_OVERLAP)) {
-        throw new ConflictError(
-          ErrorCode.PatientAlreadyBooked,
-          'You already have an appointment at this time.',
-        );
-      }
-
-      // Anything else is a real fault and must not be reported as a conflict.
-      throw error;
     }
+
+    throw new Error('Booking insert retry loop exited without a result');
   }
 
   /**
