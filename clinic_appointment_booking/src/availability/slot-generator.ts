@@ -135,3 +135,72 @@ export function generateSlots(input: GenerateSlotsInput): Slot[] {
 
   return available.sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
 }
+
+/**
+ * Resolves a requested instant to the slot it must occupy, deriving endAt from
+ * the matching schedule's slot duration.
+ *
+ * Returns null when the instant falls outside every window for that weekday,
+ * does not land exactly on a slot boundary, or would run past the window end.
+ *
+ * Booking calls this so the client never supplies endAt: a client-chosen end
+ * could create a 5-minute appointment inside a 30-minute slot. The exclusion
+ * constraint would still prevent overlap, so nothing would fail loudly, but
+ * the slot grid would rot and availability would drift from reality.
+ */
+export function resolveSlot(
+  startAt: Date,
+  schedules: ScheduleWindow[],
+  timeZone: string,
+): Slot | null {
+  const local = DateTime.fromJSDate(startAt, { zone: timeZone });
+  if (!local.isValid) {
+    return null;
+  }
+
+  const dayOfWeek = toDatabaseDayOfWeek(local.weekday);
+  const day = local.startOf('day');
+
+  for (const schedule of schedules) {
+    if (schedule.dayOfWeek !== dayOfWeek) {
+      continue;
+    }
+
+    const windowStart = day.set({
+      ...parseWallClock(schedule.startTime),
+      second: 0,
+      millisecond: 0,
+    });
+    const windowEnd = day.set({
+      ...parseWallClock(schedule.endTime),
+      second: 0,
+      millisecond: 0,
+    });
+
+    if (local < windowStart || local >= windowEnd) {
+      continue;
+    }
+
+    // Measured in real minutes from the window start, so an instant carrying
+    // seconds produces a fraction and is rejected.
+    const minutesIn = local.diff(windowStart, 'minutes').minutes;
+    if (
+      !Number.isInteger(minutesIn) ||
+      minutesIn % schedule.slotDurationMinutes !== 0
+    ) {
+      continue;
+    }
+
+    const slotEnd = local.plus({ minutes: schedule.slotDurationMinutes });
+    if (slotEnd > windowEnd) {
+      continue;
+    }
+
+    return {
+      startAt: local.toUTC().toJSDate(),
+      endAt: slotEnd.toUTC().toJSDate(),
+    };
+  }
+
+  return null;
+}
