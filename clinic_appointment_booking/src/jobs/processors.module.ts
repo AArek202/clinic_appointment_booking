@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AppointmentsModule } from '../appointments/appointments.module';
 import { Appointment } from '../appointments/appointment.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { WaitingListModule } from '../waiting-list/waiting-list.module';
 import { AppointmentReminderProcessor } from './appointment-reminder.processor';
 import { JobsModule } from './jobs.module';
 import { ReconcileScheduler } from './reconcile.scheduler';
 import { ReconciliationProcessor } from './reconciliation.processor';
+import { WaitingListProcessor } from './waiting-list.processor';
 import {
   NoWaitingListReconciler,
   WaitingListReconciler,
@@ -21,15 +24,16 @@ import {
   imports: [
     JobsModule,
     NotificationsModule,
-    // Entity-level dependency only. Plan 7 adds AppointmentsModule and
-    // WaitingListModule here.
+    AppointmentsModule,
+    WaitingListModule,
     TypeOrmModule.forFeature([Appointment]),
   ],
   providers: [
     AppointmentReminderProcessor,
     ReconciliationProcessor,
     ReconcileScheduler,
-    // Plan 7 replaces this binding with an adapter over WaitingListService.
+    WaitingListProcessor,
+    // Plan 7 Task 6 replaces this binding with an adapter over WaitingListRepository.
     { provide: WaitingListReconciler, useClass: NoWaitingListReconciler },
   ],
 })
