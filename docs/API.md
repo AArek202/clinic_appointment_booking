@@ -56,7 +56,8 @@ text. Defined codes:
 `SLOT_ALREADY_BOOKED`, `PATIENT_ALREADY_BOOKED`, `SLOT_NOT_ON_GRID`,
 `SLOT_OUTSIDE_SCHEDULE`, `SLOT_BLOCKED`, `CANCELLATION_WINDOW_PASSED`,
 `ALREADY_IN_WAITING_LIST`, `SLOT_IS_AVAILABLE`, `DATE_RANGE_TOO_LARGE`,
-`NOT_APPOINTMENT_OWNER`, `EMAIL_ALREADY_REGISTERED`.
+`NOT_APPOINTMENT_OWNER`, `EMAIL_ALREADY_REGISTERED`, `SCHEDULE_OVERLAP`,
+`BLOCK_OVERLAP`.
 
 `SLOT_ALREADY_BOOKED` and `PATIENT_ALREADY_BOOKED` both originate from SQLSTATE
 `23P01` but from differently named constraints, and they mean different things —
@@ -100,6 +101,11 @@ DELETE /doctors/:doctorId/schedules/:id        ADMIN or owning doctor
 Nested under the doctor so the ownership guard has an explicit subject to check.
 `slot_duration_minutes` is per schedule row, not per doctor.
 
+Two schedule rows for the same doctor and weekday may not overlap. The rejection
+is `409 SCHEDULE_OVERLAP` and carries `conflictingScheduleId`. It is enforced in
+the service layer because PostgreSQL has no built-in range type over `time`; see
+"Known gap: overlapping schedule rows" in `docs/DATABASE.md`.
+
 ## Blocks
 
 ```text
@@ -107,6 +113,15 @@ GET    /doctors/:doctorId/blocks               any authenticated
 POST   /doctors/:doctorId/blocks               ADMIN or owning doctor
 DELETE /doctors/:doctorId/blocks/:id           ADMIN or owning doctor
 ```
+
+A block marks a period when the doctor is unavailable, whether planned (vacation)
+or unexpected (emergency, illness, an urgent hospital case). It prevents new
+bookings in that period and does not alter appointments already confirmed.
+
+A doctor's blocks may not overlap each other; the rejection is
+`409 BLOCK_OVERLAP`. The bound is half-open, so a block starting exactly when
+another ends is accepted. Enforced by the `blocks_no_overlap` exclusion
+constraint, so it holds regardless of who writes to the table.
 
 ## Availability
 

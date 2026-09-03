@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, type JwtModuleOptions } from '@nestjs/jwt';
+
+type ExpiresIn = NonNullable<JwtModuleOptions['signOptions']>['expiresIn'];
 import { DoctorsModule } from '../doctors/doctors.module';
 import { PatientsModule } from '../patients/patients.module';
 import { UsersModule } from '../users/users.module';
@@ -18,7 +20,11 @@ import { PasswordService } from './password.service';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
         secret: config.getOrThrow<string>('JWT_SECRET'),
-        signOptions: { expiresIn: config.getOrThrow<string>('JWT_EXPIRES_IN') },
+        signOptions: {
+          expiresIn: config.getOrThrow<string>(
+            'JWT_EXPIRES_IN',
+          ) as ExpiresIn,
+        },
       }),
     }),
   ],

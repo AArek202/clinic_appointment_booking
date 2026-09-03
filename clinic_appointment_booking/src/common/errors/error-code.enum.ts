@@ -16,6 +16,8 @@ export enum ErrorCode {
   SlotIsAvailable = 'SLOT_IS_AVAILABLE',
   DateRangeTooLarge = 'DATE_RANGE_TOO_LARGE',
   NotAppointmentOwner = 'NOT_APPOINTMENT_OWNER',
+  ScheduleOverlap = 'SCHEDULE_OVERLAP',
+  BlockOverlap = 'BLOCK_OVERLAP',
   ValidationFailed = 'VALIDATION_FAILED',
   Unauthorized = 'UNAUTHORIZED',
   Forbidden = 'FORBIDDEN',
