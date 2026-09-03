@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
@@ -35,6 +36,7 @@ import { WaitingListModule } from './waiting-list/waiting-list.module';
     NotificationsModule,
     JobsModule,
     WaitingListModule,
+    AnalyticsModule,
   ],
   providers: [
     // Order matters: authentication must populate request.user before
