@@ -1,5 +1,8 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
+import { RolesGuard } from './auth/guards/roles.guard';
 import { ClockModule } from './common/clock/clock.module';
 import { AppConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
@@ -18,6 +21,12 @@ import { UsersModule } from './users/users.module';
     UsersModule,
     DoctorsModule,
     PatientsModule,
+  ],
+  providers: [
+    // Order matters: authentication must populate request.user before
+    // RolesGuard reads its role.
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule {}
