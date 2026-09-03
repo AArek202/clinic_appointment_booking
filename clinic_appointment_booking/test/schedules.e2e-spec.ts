@@ -65,7 +65,7 @@ describe('Schedules API', () => {
     slotDurationMinutes: 30,
   };
 
-  function post(actor: SeededActor, doctorId: string, body: unknown) {
+  function post(actor: SeededActor, doctorId: string, body: object) {
     return request(app.getHttpServer())
       .post(`/doctors/${doctorId}/schedules`)
       .set('Authorization', `Bearer ${actor.token}`)

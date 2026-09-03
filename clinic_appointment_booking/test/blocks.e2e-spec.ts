@@ -65,7 +65,7 @@ describe('Blocks API', () => {
     reason: 'vacation',
   };
 
-  function post(actor: SeededActor, doctorId: string, body: unknown) {
+  function post(actor: SeededActor, doctorId: string, body: object) {
     return request(app.getHttpServer())
       .post(`/doctors/${doctorId}/blocks`)
       .set('Authorization', `Bearer ${actor.token}`)

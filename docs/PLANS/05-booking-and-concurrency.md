@@ -449,6 +449,103 @@ git commit -m "feat(common): add PostgreSQL constraint error helpers"
 
 ---
 
+## Task 2b: Map `blocks_no_overlap` in `BlocksService`
+
+Plan 3's `BlocksService.create` rejects overlaps via a pre-insert lookup, which
+returns `409 BLOCK_OVERLAP` in the normal case. Two concurrent POSTs can both
+pass that lookup and then race on insert; without this task the loser surfaces
+as `500 INTERNAL_ERROR` because `AllExceptionsFilter` does not map
+`QueryFailedError`. `docs/INFRASTRUCTURE/Concurrency.md` requires
+`23P01` on `blocks_no_overlap` → `409 BLOCK_OVERLAP`.
+
+**Files:**
+- Modify: `src/blocks/blocks.service.ts`
+- Modify: `src/blocks/blocks.service.spec.ts`
+- Modify: `test/blocks.e2e-spec.ts`
+
+**Interfaces:**
+- Consumes: `isConstraintViolation` from Task 2, `ErrorCode.BlockOverlap` from
+  Plan 3.
+- Produces: a second layer of overlap rejection that matches the documented
+  constraint mapping.
+
+- [ ] **Step 1: Write the failing unit test**
+
+Add to `blocks.service.spec.ts`:
+
+```ts
+import { QueryFailedError } from 'typeorm';
+import { isConstraintViolation } from '../common/errors/database-error';
+
+// In the create() describe block:
+it('maps blocks_no_overlap to BLOCK_OVERLAP when the insert races', async () => {
+  repository.doctorExists.mockResolvedValue(true);
+  repository.findOverlapping.mockResolvedValue([]);
+  const driverError = Object.assign(new Error('conflicting key value'), {
+    code: '23P01',
+    constraint: 'blocks_no_overlap',
+  });
+  repository.insert.mockRejectedValue(
+    new QueryFailedError('INSERT ...', [], driverError),
+  );
+
+  await expect(
+    service.create('doctor-1', {
+      startAt: '2026-09-06T07:00:00Z',
+      endAt: '2026-09-06T08:00:00Z',
+    }),
+  ).rejects.toMatchObject({ code: ErrorCode.BlockOverlap });
+});
+```
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `npx jest src/blocks/blocks.service.spec.ts`
+Expected: FAIL — the raw `QueryFailedError` propagates.
+
+- [ ] **Step 3: Wrap the insert and map the constraint**
+
+In `blocks.service.ts`, import `isConstraintViolation` and wrap `repository.insert`:
+
+```ts
+import { isConstraintViolation } from '../common/errors/database-error';
+
+// Inside create(), replace the bare return with:
+try {
+  return await this.repository.insert({
+    doctorId,
+    startAt,
+    endAt,
+    reason: dto.reason ?? null,
+  });
+} catch (error) {
+  if (isConstraintViolation(error, 'blocks_no_overlap')) {
+    throw new ConflictError(
+      ErrorCode.BlockOverlap,
+      'This period overlaps an existing block for this doctor.',
+    );
+  }
+  throw error;
+}
+```
+
+- [ ] **Step 4: Run the unit test to verify it passes**
+
+Run: `npx jest src/blocks/blocks.service.spec.ts`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/blocks/blocks.service.ts src/blocks/blocks.service.spec.ts
+git commit -m "fix(blocks): map blocks_no_overlap constraint violations to BLOCK_OVERLAP"
+```
+
+The e2e race is hard to reproduce reliably in Jest; the unit test above is the
+proof. The existing e2e overlap test still covers the service-layer path.
+
+---
+
 ## Task 3: The appointments repository
 
 **Files:**
@@ -1658,6 +1755,8 @@ git commit -m "test(appointments): add concurrent booking proof against multiple
       returns 409 `PATIENT_ALREADY_BOOKED`.
 - [ ] Cancelling at exactly 2 hours ahead succeeds; 1h59m fails.
 - [ ] Cancelling twice returns 200 both times with an unchanged `cancelledAt`.
+- [ ] Two concurrent overlapping block POSTs that race past the service lookup
+      return `409 BLOCK_OVERLAP`, not `500` (Task 2b unit test).
 - [ ] `npm run migration:revert` then `npm run migration:run` succeeds.
 
 ---
