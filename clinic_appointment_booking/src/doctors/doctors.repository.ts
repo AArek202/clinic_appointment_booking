@@ -11,7 +11,9 @@ export interface CreateDoctorParams {
 
 @Injectable()
 export class DoctorsRepository {
-  constructor(@InjectRepository(Doctor) private readonly repo: Repository<Doctor>) {}
+  constructor(
+    @InjectRepository(Doctor) private readonly repo: Repository<Doctor>,
+  ) {}
 
   findById(id: string): Promise<Doctor | null> {
     return this.repo.findOne({ where: { id } });
@@ -25,7 +27,10 @@ export class DoctorsRepository {
     return this.repo.find({ relations: { user: true }, order: { id: 'ASC' } });
   }
 
-  createDoctor(params: CreateDoctorParams, manager?: EntityManager): Promise<Doctor> {
+  createDoctor(
+    params: CreateDoctorParams,
+    manager?: EntityManager,
+  ): Promise<Doctor> {
     const repo = manager ? manager.getRepository(Doctor) : this.repo;
     return repo.save(repo.create({ achievements: null, ...params }));
   }

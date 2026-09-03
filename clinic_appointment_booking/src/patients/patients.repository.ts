@@ -12,7 +12,9 @@ export interface CreatePatientParams {
 
 @Injectable()
 export class PatientsRepository {
-  constructor(@InjectRepository(Patient) private readonly repo: Repository<Patient>) {}
+  constructor(
+    @InjectRepository(Patient) private readonly repo: Repository<Patient>,
+  ) {}
 
   findById(id: string): Promise<Patient | null> {
     return this.repo.findOne({ where: { id } });
@@ -22,7 +24,10 @@ export class PatientsRepository {
     return this.repo.findOne({ where: { userId } });
   }
 
-  createPatient(params: CreatePatientParams, manager?: EntityManager): Promise<Patient> {
+  createPatient(
+    params: CreatePatientParams,
+    manager?: EntityManager,
+  ): Promise<Patient> {
     const repo = manager ? manager.getRepository(Patient) : this.repo;
     return repo.save(
       repo.create({
