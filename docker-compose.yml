@@ -87,6 +87,28 @@ services:
       retries: 5
       start_period: 15s
 
+  worker:
+    build:
+      context: ./clinic_appointment_booking
+      target: runtime
+    # Same image as `api`; only the command differs.
+    command: ['node', 'dist/worker']
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://clinic:clinic@postgres:5432/clinic
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN}
+      CLINIC_TZ: ${CLINIC_TZ}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   nginx:
     image: nginx:1.27-alpine
     volumes:

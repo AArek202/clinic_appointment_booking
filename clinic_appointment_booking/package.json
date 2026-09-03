@@ -12,6 +12,8 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
+    "start:worker": "nest start --entryFile worker",
+    "start:worker:dev": "nest start --watch --entryFile worker",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "jest",
@@ -27,6 +29,7 @@
     "seed:admin": "ts-node -r tsconfig-paths/register src/database/seeds/create-admin.ts"
   },
   "dependencies": {
+    "@nestjs/bullmq": "^12.0.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^12.0.0",
     "@nestjs/core": "^11.0.1",
@@ -34,9 +37,11 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/typeorm": "^12.0.1",
     "bcryptjs": "^3.0.3",
+    "bullmq": "^5.34.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "dotenv": "^17.4.2",
+    "ioredis": "^5.11.1",
     "luxon": "^3.7.2",
     "pg": "^8.23.0",
     "reflect-metadata": "^0.2.2",
@@ -102,7 +107,7 @@
       ]
     },
     "transformIgnorePatterns": [
-      "/node_modules/(?!(@nestjs/config|@nestjs/typeorm|@nestjs/jwt|es-toolkit|@standard-schema)/)"
+      "/node_modules/(?!(@nestjs/config|@nestjs/typeorm|@nestjs/jwt|@nestjs/bullmq|@nestjs/bull-shared|bullmq|es-toolkit|@standard-schema)/)"
     ],
     "collectCoverageFrom": [
       "**/*.(t|j)s"

@@ -11,6 +11,8 @@ import { AppConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { DoctorsModule } from './doctors/doctors.module';
 import { HealthModule } from './health/health.module';
+import { JobsModule } from './jobs/jobs.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PatientsModule } from './patients/patients.module';
 import { SchedulesModule } from './schedules/schedules.module';
 import { UsersModule } from './users/users.module';
@@ -29,6 +31,8 @@ import { UsersModule } from './users/users.module';
     BlocksModule,
     AvailabilityModule,
     AppointmentsModule,
+    NotificationsModule,
+    JobsModule,
   ],
   providers: [
     // Order matters: authentication must populate request.user before
