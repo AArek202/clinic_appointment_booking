@@ -36,7 +36,7 @@ clinic's September 6th, but an appointment is an unambiguous moment in time.
 - `403` — role or ownership check failed
 - `404` — doctor, appointment or waiting-list entry not found
 - `409` — state conflict: slot already booked, already queued, cancellation
-  window passed
+  window passed, email already registered
 - `500` — anything else, including unexpected constraint violations
 
 ## Error body
@@ -56,7 +56,7 @@ text. Defined codes:
 `SLOT_ALREADY_BOOKED`, `PATIENT_ALREADY_BOOKED`, `SLOT_NOT_ON_GRID`,
 `SLOT_OUTSIDE_SCHEDULE`, `SLOT_BLOCKED`, `CANCELLATION_WINDOW_PASSED`,
 `ALREADY_IN_WAITING_LIST`, `SLOT_IS_AVAILABLE`, `DATE_RANGE_TOO_LARGE`,
-`NOT_APPOINTMENT_OWNER`.
+`NOT_APPOINTMENT_OWNER`, `EMAIL_ALREADY_REGISTERED`.
 
 `SLOT_ALREADY_BOOKED` and `PATIENT_ALREADY_BOOKED` both originate from SQLSTATE
 `23P01` but from differently named constraints, and they mean different things —
