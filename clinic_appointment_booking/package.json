@@ -27,7 +27,10 @@
     "migration:run": "npm run typeorm -- migration:run",
     "migration:revert": "npm run typeorm -- migration:revert",
     "migration:generate": "npm run typeorm -- migration:generate",
-    "seed:admin": "ts-node -r tsconfig-paths/register src/database/seeds/create-admin.ts"
+    "seed:admin": "ts-node -r tsconfig-paths/register src/database/seeds/create-admin.ts",
+    "seed": "node --max-old-space-size=4096 -r ts-node/register -r tsconfig-paths/register src/database/seeds/seed.ts",
+    "seed:small": "node -r ts-node/register -r tsconfig-paths/register src/database/seeds/seed.ts --scale=small",
+    "seed:reset": "node --max-old-space-size=4096 -r ts-node/register -r tsconfig-paths/register src/database/seeds/seed.ts --reset"
   },
   "dependencies": {
     "@nestjs/bullmq": "^12.0.0",
