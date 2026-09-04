@@ -16,7 +16,7 @@ export class DoctorsRepository {
   ) {}
 
   findById(id: string): Promise<Doctor | null> {
-    return this.repo.findOne({ where: { id } });
+    return this.repo.findOne({ where: { id }, relations: { user: true } });
   }
 
   findByUserId(userId: string): Promise<Doctor | null> {

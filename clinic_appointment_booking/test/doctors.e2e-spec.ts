@@ -115,6 +115,31 @@ describe('Doctors', () => {
       .expect(401);
   });
 
+  it('returns the doctor name on GET /doctors/:id', async () => {
+    const adminToken = await tokenFor(
+      adminCredentials.email,
+      adminCredentials.password,
+    );
+    const created = await request(app.getHttpServer())
+      .post('/doctors')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ ...newDoctor, achievements: '10 years of practice' })
+      .expect(201);
+
+    const response = await request(app.getHttpServer())
+      .get(`/doctors/${created.body.id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    expect(response.body).toEqual({
+      id: created.body.id,
+      firstName: 'Omar',
+      lastName: 'Fahmy',
+      specialization: 'Cardiology',
+      achievements: '10 years of practice',
+    });
+  });
+
   it('reports the created doctor id on /auth/me for that doctor', async () => {
     const adminToken = await tokenFor(
       adminCredentials.email,

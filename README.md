@@ -726,16 +726,22 @@ in-process with the API. Scaling HTTP replicas must not silently double job
 concurrency. Redis with no volume is the same family of choice: it is a
 scheduler, PostgreSQL is the record.
 
-**How I verified code I did not want to trust on sight.** Migrations against a
-real database, never `synchronize: true`. The concurrency script against nginx
-and two replicas, asserting `409` not "not 201". `EXPLAIN ANALYZE` on the
-seeded ~2M-row set, both with and without each index, rolled back inside a
-transaction. If a reviewer asked me to walk a file line by line, I would start
-from the test that encodes the invariant, then the constraint or conditional
-`UPDATE` that actually holds it.
+**How I verified generated code**
 
-**Without AI, in the same two days.** I would still ship booking, the exclusion
-constraints, cancellation, the concurrency proof, and a honest README. I would
-cut the full-scale seed, the annotated `EXPLAIN` appendix, and probably the
-waiting-list sweeper polish — those are what the assistant made cheap enough to
-keep.
+I didn't trust generated code on sight. I verified the important invariants in three ways:
+
+1. **Schema integrity** — I used real database migrations and kept `synchronize: false`.
+The database schema is therefore explicit, reviewable, and reproducible.
+
+2. **Concurrency correctness** — I tested the booking flow with nginx and two application replicas,
+issuing concurrent requests for the same slot. The invariant is that only one booking succeeds;
+the competing request must receive `409 Conflict`, rather than simply asserting that it did not return `201`.
+
+3. **Index effectiveness** — I used `EXPLAIN ANALYZE` against a dataset of
+roughly 2 million appointments and compared query plans with and without the relevant indexes.
+I tested index changes safely inside a transaction where appropriate.
+
+If I'm asked to walk through a file, I start from the test that expresses the invariant, then trace that requirement to the database constraint or conditional `UPDATE` that enforces it.
+
+
+**Without AI** The Task would have taken about 2 weeks to finish 
