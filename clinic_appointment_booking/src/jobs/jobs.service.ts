@@ -12,6 +12,7 @@ import {
   processSlotJobId,
   sendReminderJobId,
   sweepReminderJobId,
+  sweepWaitlistJobId,
 } from './queue.constants';
 
 /**
@@ -91,6 +92,19 @@ export class JobsService {
       JOB_PROCESS_SLOT,
       { doctorId, slotStartAtIso: slotStartAt.toISOString() },
       { jobId: processSlotJobId(doctorId, slotStartAt) },
+    );
+  }
+
+  /** Used by the reconciliation sweeper for a slot whose job was lost or already completed. */
+  async enqueueStrandedSlotProcessing(
+    doctorId: string,
+    slotStartAt: Date,
+    now: Date,
+  ): Promise<void> {
+    await this.waitingList.add(
+      JOB_PROCESS_SLOT,
+      { doctorId, slotStartAtIso: slotStartAt.toISOString() },
+      { jobId: sweepWaitlistJobId(doctorId, slotStartAt, now) },
     );
   }
 }

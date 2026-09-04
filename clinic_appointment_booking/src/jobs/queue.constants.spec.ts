@@ -3,6 +3,7 @@ import {
   processSlotJobId,
   sendReminderJobId,
   sweepReminderJobId,
+  sweepWaitlistJobId,
 } from './queue.constants';
 
 describe('job ids', () => {
@@ -36,6 +37,25 @@ describe('job ids', () => {
 
     expect(sweepReminderJobId('appt-1', next)).not.toBe(
       sweepReminderJobId('appt-1', first),
+    );
+  });
+
+  it('gives two sweeps in the same minute the same waitlist id', () => {
+    const slotStartAt = new Date('2026-10-01T09:00:00.000Z');
+    const first = new Date('2026-10-01T09:00:01.000Z');
+    const second = new Date('2026-10-01T09:00:59.000Z');
+
+    expect(sweepWaitlistJobId('doc-1', slotStartAt, first)).toBe(
+      sweepWaitlistJobId('doc-1', slotStartAt, second),
+    );
+  });
+
+  it('gives the next sweep a different waitlist id from the cancel-path id', () => {
+    const slotStartAt = new Date('2026-10-01T09:00:00.000Z');
+    const now = new Date('2026-10-01T09:00:00.000Z');
+
+    expect(sweepWaitlistJobId('doc-1', slotStartAt, now)).not.toBe(
+      processSlotJobId('doc-1', slotStartAt),
     );
   });
 });

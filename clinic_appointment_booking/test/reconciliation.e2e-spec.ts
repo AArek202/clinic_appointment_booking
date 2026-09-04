@@ -2,7 +2,8 @@ import { getQueueToken } from '@nestjs/bullmq';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Queue } from 'bullmq';
+import { Queue, Worker } from 'bullmq';
+import Redis from 'ioredis';
 import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { Appointment } from '../src/appointments/appointment.entity';
@@ -22,6 +23,8 @@ import {
   QUEUE_WAITING_LIST,
   RECONCILE_EVERY_MS,
   RECONCILE_SCHEDULER_ID,
+  processSlotJobId,
+  sweepWaitlistJobId,
 } from '../src/jobs/queue.constants';
 import {
   StrandedSlot,
@@ -191,7 +194,9 @@ describe('ReconciliationProcessor', () => {
 
     const queued = await waitingList.getJobs(['waiting', 'delayed', 'active']);
     expect(queued).toHaveLength(1);
-    expect(queued[0].id).toBe(`waitlist:doc-1:${START_AT.toISOString()}`);
+    expect(queued[0].id).toBe(
+      sweepWaitlistJobId('doc-1', START_AT, NOW),
+    );
     expect(queued[0].data).toEqual({
       doctorId: 'doc-1',
       slotStartAtIso: START_AT.toISOString(),
@@ -426,6 +431,52 @@ describe('WaitingListReconcilerAdapter', () => {
       doctorId,
       slotStartAtIso: WAITING_LIST_SLOT,
     });
+  });
+
+  it('re-enqueues a stranded slot even when the cancel-path job already completed', async () => {
+    const appointment = await bookAs(patientAToken, WAITING_LIST_SLOT);
+    await joinAs(patientBToken, WAITING_LIST_SLOT);
+    await cancelAs(patientAToken, appointment.id);
+
+    const cancelPathId = processSlotJobId(
+      doctorId,
+      new Date(WAITING_LIST_SLOT),
+    );
+    expect(await waitingListQueue.getJob(cancelPathId)).not.toBeNull();
+
+    // Complete the cancel-path job without assigning (queue-empty / too-early
+    // run). BullMQ then holds that id in the completed set.
+    const connection = new Redis(process.env.REDIS_URL!, {
+      maxRetriesPerRequest: null,
+    });
+    const drain = new Worker(QUEUE_WAITING_LIST, async () => undefined, {
+      connection,
+    });
+    try {
+      await waitFor(async () => {
+        const job = await waitingListQueue.getJob(cancelPathId);
+        return job?.finishedOn != null;
+      });
+    } finally {
+      await drain.close();
+      await connection.quit();
+    }
+
+    await reconciliation.process();
+
+    const waiting = await waitingListQueue.getJobs([
+      'waiting',
+      'delayed',
+      'active',
+    ]);
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0].id).toBe(
+      sweepWaitlistJobId(
+        doctorId,
+        new Date(WAITING_LIST_SLOT),
+        WAITING_LIST_NOW,
+      ),
+    );
   });
 
   it('does not re-enqueue a slot that already has a confirmed booking', async () => {

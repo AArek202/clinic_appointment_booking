@@ -64,8 +64,8 @@ export class ReconciliationProcessor extends WorkerHost {
 
   /**
    * Pass 1: cancelled appointments whose slot still has WAITING entries.
-   * The deterministic slot job id means re-enqueueing an already queued slot
-   * is a no-op.
+   * Uses a sweep-bucketed job id so a completed cancel-path job cannot
+   * block recovery. Two sweeps in the same minute still collapse.
    */
   private async enqueueStrandedSlots(now: Date): Promise<number> {
     const slots = await this.waitingListReconciler.findStrandedSlots(
@@ -74,7 +74,11 @@ export class ReconciliationProcessor extends WorkerHost {
     );
 
     for (const slot of slots) {
-      await this.jobs.enqueueSlotProcessing(slot.doctorId, slot.slotStartAt);
+      await this.jobs.enqueueStrandedSlotProcessing(
+        slot.doctorId,
+        slot.slotStartAt,
+        now,
+      );
     }
 
     return slots.length;

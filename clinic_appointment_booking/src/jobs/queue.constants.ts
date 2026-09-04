@@ -46,3 +46,23 @@ export function sweepReminderJobId(appointmentId: string, now: Date): string {
   const bucket = Math.floor(now.getTime() / RECONCILE_EVERY_MS);
   return `reminder-sweep:${appointmentId}:${bucket}`;
 }
+
+/**
+ * Job id used when the *sweeper* re-enqueues waiting-list processing.
+ *
+ * Same reason as sweepReminderJobId: cancel uses processSlotJobId(), and
+ * BullMQ ignores `add` while that id still sits in the completed or failed
+ * set. A second cancellation of the same slot (or a stranded waiter the
+ * sweeper is meant to recover) would otherwise be a silent no-op for up to
+ * removeOnComplete.age. Bucketing by sweep interval keeps replica sweeps in
+ * the same minute from creating two jobs; duplicate assignment is prevented
+ * by markAssigned, not by this id.
+ */
+export function sweepWaitlistJobId(
+  doctorId: string,
+  slotStartAt: Date,
+  now: Date,
+): string {
+  const bucket = Math.floor(now.getTime() / RECONCILE_EVERY_MS);
+  return `waitlist-sweep:${doctorId}:${slotStartAt.toISOString()}:${bucket}`;
+}
