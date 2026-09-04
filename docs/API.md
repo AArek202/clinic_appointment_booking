@@ -89,6 +89,9 @@ GET    /doctors/:id            any authenticated
 `POST /doctors` creates the user account (role DOCTOR) and the doctor profile in
 one transaction. Doctors do not self-register.
 
+`GET /doctors` and `GET /doctors/:id` include `firstName` and `lastName` from
+the linked user. The profile itself stores specialization and achievements.
+
 ## Schedules
 
 ```text

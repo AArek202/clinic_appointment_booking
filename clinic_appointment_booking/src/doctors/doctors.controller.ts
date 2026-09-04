@@ -42,6 +42,8 @@ export class DoctorsController {
     const doctor = await this.doctors.findById(id);
     return {
       id: doctor.id,
+      firstName: doctor.user?.firstName,
+      lastName: doctor.user?.lastName,
       specialization: doctor.specialization,
       achievements: doctor.achievements,
     };

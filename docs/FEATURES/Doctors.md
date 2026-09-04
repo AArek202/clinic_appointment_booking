@@ -16,8 +16,12 @@ A doctor is linked to a user account (`user_id` unique).
 
 Profile fields should include:
 
+- firstName / lastName (from the linked user)
 - specialization
 - achievements
+
+`GET /doctors/:id` returns those name fields together with specialization and
+achievements. `GET /doctors` returns the same names on each list item.
 
 ---
 
