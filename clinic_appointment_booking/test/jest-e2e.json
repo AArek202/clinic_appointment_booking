@@ -26,8 +26,9 @@
     ]
   },
   "transformIgnorePatterns": [
-    "/node_modules/(?!(@nestjs/config|@nestjs/typeorm|@nestjs/jwt|es-toolkit|@standard-schema)/)"
+    "/node_modules/(?!(@nestjs/config|@nestjs/typeorm|@nestjs/jwt|@nestjs/bullmq|@nestjs/bull-shared|bullmq|es-toolkit|@standard-schema)/)"
   ],
   "globalSetup": "<rootDir>/test/setup-db.ts",
-  "maxWorkers": 1
+  "maxWorkers": 1,
+  "testTimeout": 30000
 }

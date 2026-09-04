@@ -146,6 +146,10 @@ GET    /doctors/:doctorId/appointments         ADMIN or owning doctor
 POST   /appointments/:id/cancel                PATIENT (owner) or ADMIN
 ```
 
+`GET /doctors/:doctorId/appointments` is the doctor's calendar. It includes
+`patientId`, returns CONFIRMED and CANCELLED rows, and uses
+`DoctorOwnershipGuard` — a patient or another doctor gets `403`.
+
 Cancel is a POST to a sub-resource rather than `DELETE /appointments/:id`. The
 row is retained with status CANCELLED for analytics, so a `DELETE` verb would
 advertise the opposite of what happens.

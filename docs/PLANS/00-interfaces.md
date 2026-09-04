@@ -115,7 +115,6 @@ class Patient {
   phoneNumber: string | null;   // phone_number
   dateOfBirth: string | null;   // date_of_birth, 'YYYY-MM-DD'
   gender: string | null;
-  hasInsurance: boolean;        // has_insurance, NOT NULL DEFAULT false
   user?: User;
 }
 

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
@@ -11,9 +12,12 @@ import { AppConfigModule } from './config/config.module';
 import { DatabaseModule } from './database/database.module';
 import { DoctorsModule } from './doctors/doctors.module';
 import { HealthModule } from './health/health.module';
+import { JobsModule } from './jobs/jobs.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { PatientsModule } from './patients/patients.module';
 import { SchedulesModule } from './schedules/schedules.module';
 import { UsersModule } from './users/users.module';
+import { WaitingListModule } from './waiting-list/waiting-list.module';
 
 @Module({
   imports: [
@@ -29,6 +33,10 @@ import { UsersModule } from './users/users.module';
     BlocksModule,
     AvailabilityModule,
     AppointmentsModule,
+    NotificationsModule,
+    JobsModule,
+    WaitingListModule,
+    AnalyticsModule,
   ],
   providers: [
     // Order matters: authentication must populate request.user before

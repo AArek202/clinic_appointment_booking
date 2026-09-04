@@ -19,6 +19,7 @@ import {
   isDeadlock,
 } from '../common/errors/database-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
+import { JobsService } from '../jobs/jobs.service';
 import { SchedulesRepository } from '../schedules/schedules.repository';
 import { Appointment } from './appointment.entity';
 import { AppointmentsRepository } from './appointments.repository';
@@ -48,6 +49,7 @@ export class AppointmentsService {
     private readonly clock: Clock,
     private readonly config: ConfigService,
     private readonly dataSource: DataSource,
+    private readonly jobs: JobsService,
   ) {}
 
   async book(
@@ -217,9 +219,15 @@ export class AppointmentsService {
       return current!;
     }
 
-    // PLAN 6 INTEGRATION POINT: after commit, best-effort remove the delayed
-    // reminder job, then enqueue WAITING_LIST_PROCESS for
-    // (doctorId, startAt). Never inside the transaction.
+    // After the cancellation has committed. Never inside the transaction:
+    // a worker could otherwise start before the commit lands, read a still
+    // CONFIRMED appointment, correctly do nothing, and the slot would never
+    // be reassigned.
+    await this.jobs.removeReminder(appointment.id);
+    await this.jobs.enqueueSlotProcessing(
+      appointment.doctorId,
+      appointment.startAt,
+    );
 
     const updated = await this.appointments.findById(appointmentId);
     return updated!;
@@ -229,7 +237,15 @@ export class AppointmentsService {
     return this.appointments.listForPatient(patientId);
   }
 
-  listForDoctor(doctorId: string): Promise<Appointment[]> {
+  async listForDoctor(doctorId: string): Promise<Appointment[]> {
+    if (!(await this.schedules.doctorExists(doctorId))) {
+      throw new AppException(
+        ErrorCode.NotFound,
+        'Doctor not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
     return this.appointments.listForDoctor(doctorId);
   }
 }

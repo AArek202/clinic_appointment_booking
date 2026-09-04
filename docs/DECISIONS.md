@@ -517,3 +517,30 @@ finishing with `23P01`.
   prevent the deadlock. Rejected as the primary protection in decision 4; adding
   it now as a sidecar would protect only this code path and reopen that
   decision for a problem retry already solves.
+
+---
+
+## 20. Sweeper waitlist jobs use a different BullMQ id than cancel
+
+**Decided:** cancellation enqueues `waitlist:{doctorId}:{slotStartAtIso}` so two
+in-flight cancels of the same slot collapse. The sweeper enqueues
+`waitlist-sweep:{doctorId}:{slotStartAtIso}:{minuteBucket}`, matching
+`sweepReminderJobId`.
+
+**Why this came up:** a patient cancelled, the waiting-list job ran while the
+queue was empty (or the slot had already been re-booked), and BullMQ kept that
+completed job for an hour. A later waiter plus a second cancel — and every
+sweeper pass — reused the same id. `Queue.add` was a silent no-op. The slot
+stayed free; the waiter stayed `WAITING`.
+
+**Alternatives considered:**
+
+- _Reuse `processSlotJobId` in the sweeper_ (what shipped first). Collapses
+  duplicate in-flight work, but also collapses recovery onto a completed job.
+- _`removeOnComplete: true` only._ Would free the cancel-path id immediately.
+  Still leaves a failed job occupying the id for a day (`removeOnFail.age`).
+- _Unique id per enqueue._ Loses the in-flight collapse that two replicas
+  cancelling the same slot need.
+
+Duplicate *assignment* is still prevented by `WAITING → ASSIGNED` and the
+exclusion constraint, not by the job id.

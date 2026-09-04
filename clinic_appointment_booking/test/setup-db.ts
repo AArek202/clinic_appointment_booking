@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { config as loadDotenv } from 'dotenv';
 import { DataSource } from 'typeorm';
+import { DEFAULT_TEST_REDIS_URL, assertIsolatedRedis } from './redis-helper';
 
 loadDotenv();
 
@@ -17,6 +18,10 @@ export default async function globalSetup(): Promise<void> {
   }
 
   process.env.DATABASE_URL = url;
+
+  const redisUrl = process.env.TEST_REDIS_URL ?? DEFAULT_TEST_REDIS_URL;
+  assertIsolatedRedis(redisUrl);
+  process.env.REDIS_URL = redisUrl;
 
   const dataSource = new DataSource({
     type: 'postgres',

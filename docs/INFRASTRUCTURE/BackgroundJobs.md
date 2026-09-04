@@ -185,7 +185,15 @@ It does not carry the appointment or the chosen patient — the worker re-derive
 both, so a retry always operates on current state.
 
 Use a deterministic BullMQ job id such as `waitlist:{doctorId}:{slotStartAtIso}`
-so duplicate enqueues for the same slot collapse into one job.
+so duplicate **in-flight** enqueues for the same slot collapse into one job.
+
+The sweeper must **not** reuse that id. BullMQ ignores `add` while a job id still
+exists in the completed or failed set (`removeOnComplete.age` is an hour), so a
+second cancellation of the same slot — or a waiter the first job found nobody
+for — would otherwise be a silent no-op. The sweeper uses a bucketed id
+(`waitlist-sweep:{doctorId}:{slotStartAtIso}:{minute}`), the same pattern as
+reminder recovery. Duplicate assignment is prevented by `WAITING → ASSIGNED`
+conditional update, not by the job id.
 
 The worker selects candidates with `FOR UPDATE SKIP LOCKED`, so two workers
 processing the same slot never pick the same waiting patient:

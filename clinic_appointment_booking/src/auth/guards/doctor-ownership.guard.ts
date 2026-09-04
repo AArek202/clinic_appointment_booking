@@ -13,7 +13,8 @@ import { AuthUser } from '../auth-user.interface';
  * Passes when the caller is an ADMIN, or is the doctor named by the
  * `:doctorId` route parameter.
  *
- * One rule, reused by schedules, blocks and analytics.
+ * One rule, reused by schedules, blocks, analytics, and the doctor's
+ * appointment list.
  */
 @Injectable()
 export class DoctorOwnershipGuard implements CanActivate {
