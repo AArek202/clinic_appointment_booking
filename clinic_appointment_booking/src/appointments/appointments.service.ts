@@ -237,7 +237,15 @@ export class AppointmentsService {
     return this.appointments.listForPatient(patientId);
   }
 
-  listForDoctor(doctorId: string): Promise<Appointment[]> {
+  async listForDoctor(doctorId: string): Promise<Appointment[]> {
+    if (!(await this.schedules.doctorExists(doctorId))) {
+      throw new AppException(
+        ErrorCode.NotFound,
+        'Doctor not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
     return this.appointments.listForDoctor(doctorId);
   }
 }

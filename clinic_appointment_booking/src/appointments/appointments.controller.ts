@@ -7,10 +7,12 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  UseGuards,
 } from '@nestjs/common';
 import type { AuthUser } from '../auth/auth-user.interface';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { DoctorOwnershipGuard } from '../auth/guards/doctor-ownership.guard';
 import { UserRole } from '../common/enums/role.enum';
 import { AppointmentsService } from './appointments.service';
 import { CreateAppointmentDto } from './dto/create-appointment.dto';
@@ -50,6 +52,21 @@ export class AppointmentsController {
       startAt: appointment.startAt.toISOString(),
       endAt: appointment.endAt.toISOString(),
       status: appointment.status,
+    }));
+  }
+
+  @Get('doctors/:doctorId/appointments')
+  @UseGuards(DoctorOwnershipGuard)
+  async forDoctor(@Param('doctorId', ParseUUIDPipe) doctorId: string) {
+    const rows = await this.appointments.listForDoctor(doctorId);
+    return rows.map((appointment) => ({
+      id: appointment.id,
+      doctorId: appointment.doctorId,
+      patientId: appointment.patientId,
+      startAt: appointment.startAt.toISOString(),
+      endAt: appointment.endAt.toISOString(),
+      status: appointment.status,
+      createdFrom: appointment.createdFrom,
     }));
   }
 
