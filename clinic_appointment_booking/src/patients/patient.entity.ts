@@ -24,9 +24,6 @@ export class Patient {
   @Column({ type: 'text', nullable: true })
   gender!: string | null;
 
-  @Column({ name: 'has_insurance', type: 'boolean', default: false })
-  hasInsurance!: boolean;
-
   @OneToOne(() => User)
   @JoinColumn({ name: 'user_id' })
   user?: User;

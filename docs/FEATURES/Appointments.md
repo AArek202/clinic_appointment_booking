@@ -158,6 +158,16 @@ If an appointment is already cancelled, return an appropriate response rather th
 
 --- 
 
+# Listing
+
+- Patients read their own rows at `GET /appointments/me`.
+- The owning doctor or an ADMIN reads a doctor's calendar at
+  `GET /doctors/:doctorId/appointments`. That response includes `patientId`.
+  CONFIRMED and CANCELLED rows are both returned; cancelled rows stay because
+  they are the history, not a deletion.
+
+---
+
 # Important
 
 Do not physically delete appointments when cancelled.

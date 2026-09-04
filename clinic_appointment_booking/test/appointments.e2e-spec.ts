@@ -28,7 +28,10 @@ describe('Appointments API (booking)', () => {
   let clock: FixedClock;
   let adminToken: string;
   let doctorId: string;
+  let doctorToken: string;
   let secondDoctorId: string;
+  let secondDoctorToken: string;
+  let patientId: string;
   let patientToken: string;
   let otherPatientToken: string;
 
@@ -73,7 +76,10 @@ describe('Appointments API (booking)', () => {
 
     adminToken = admin.token;
     doctorId = doctor.doctorId!;
+    doctorToken = doctor.token;
     secondDoctorId = secondDoctor.doctorId!;
+    secondDoctorToken = secondDoctor.token;
+    patientId = patient.patientId!;
     patientToken = patient.token;
     otherPatientToken = otherPatient.token;
 
@@ -341,6 +347,83 @@ describe('Appointments API (booking)', () => {
         .post('/appointments/00000000-0000-0000-0000-000000000000/cancel')
         .set('Authorization', `Bearer ${patientToken}`)
         .expect(404);
+    });
+  });
+
+  describe('GET /doctors/:doctorId/appointments', () => {
+    it('returns the owning doctor their calendar, including patientId', async () => {
+      const booked = await bookAs(patientToken, doctorId, SLOT_START);
+
+      const response = await request(app.getHttpServer())
+        .get(`/doctors/${doctorId}/appointments`)
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .expect(200);
+
+      expect(response.body).toEqual([
+        {
+          id: booked.id,
+          doctorId,
+          patientId,
+          startAt: SLOT_START,
+          endAt: NEXT_SLOT_START,
+          status: 'CONFIRMED',
+          createdFrom: 'DIRECT',
+        },
+      ]);
+    });
+
+    it('returns the same list to an admin', async () => {
+      await bookAs(patientToken, doctorId, SLOT_START);
+
+      const response = await request(app.getHttpServer())
+        .get(`/doctors/${doctorId}/appointments`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].patientId).toBe(patientId);
+    });
+
+    it('includes cancelled rows so the doctor still has history', async () => {
+      const appointment = await bookAs(
+        patientToken,
+        doctorId,
+        '2026-10-05T09:00:00.000Z',
+      );
+      await cancelAs(patientToken, appointment.id);
+
+      const response = await request(app.getHttpServer())
+        .get(`/doctors/${doctorId}/appointments`)
+        .set('Authorization', `Bearer ${doctorToken}`)
+        .expect(200);
+
+      expect(response.body).toHaveLength(1);
+      expect(response.body[0].status).toBe('CANCELLED');
+    });
+
+    it('rejects a different doctor with 403', async () => {
+      const response = await request(app.getHttpServer())
+        .get(`/doctors/${doctorId}/appointments`)
+        .set('Authorization', `Bearer ${secondDoctorToken}`)
+        .expect(403);
+
+      expect(response.body.code).toBe('FORBIDDEN');
+    });
+
+    it('rejects a patient with 403', async () => {
+      await request(app.getHttpServer())
+        .get(`/doctors/${doctorId}/appointments`)
+        .set('Authorization', `Bearer ${patientToken}`)
+        .expect(403);
+    });
+
+    it('returns 404 for a doctor that does not exist', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/doctors/00000000-0000-4000-8000-000000000000/appointments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(404);
+
+      expect(response.body.code).toBe('NOT_FOUND');
     });
   });
 });

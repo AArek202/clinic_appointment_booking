@@ -1,0 +1,469 @@
+﻿Timing is off.
+Pager usage is off.
+SET
+=========================== measurement context ==========================
+busy_doctor        = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'
+busy_patient       = '3668c3cb-9f46-4890-9384-6549b7001606'
+sample_appointment = 'f48908b6-0947-47a5-aea4-0369e9e27757'
+busy_month         = '2026-12-01'
+month_start        = '2026-11-30 22:00:00+00'
+month_end          = '2026-12-31 22:00:00+00'
+availability from  = '2026-09-04 07:33:06.991377+00'
+availability to    = '2026-10-04 07:33:06.991377+00'
+wl_doctor          = '10d56a5f-81cf-4b04-9ba9-67cc4377dd0d'
+wl_patient         = 'a07b1223-4137-488f-9a32-fa532fb83e18'
+wl_slot            = '2026-09-06 07:45:00+00'
+ appointments | cancelled | doctors 
+--------------+-----------+---------
+      2029903 |    300682 |     200
+(1 row)
+
+ appointments_for_busy_doctor 
+------------------------------
+                        24386
+(1 row)
+
+
+==========================================================================
+Q1  Availability: confirmed appointments for one doctor over 30 days
+Index under test: appointments_no_overlap (GiST, partial on CONFIRMED)
+==========================================================================
+
+--- (a) no appointments index at all -------------------------------------
+BEGIN
+ALTER TABLE
+DROP INDEX
+                                                                                      QUERY PLAN                                                                                      
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=30645.38..30645.88 rows=198 width=16) (actual time=276.770..276.801 rows=869 loops=1)
+   Sort Key: start_at
+   Sort Method: quicksort  Memory: 58kB
+   Buffers: shared read=22806
+   ->  Bitmap Heap Scan on appointments  (cost=978.38..30637.83 rows=198 width=16) (actual time=264.594..276.614 rows=869 loops=1)
+         Recheck Cond: ((tstzrange(start_at, end_at, '[)'::text) && '["2026-09-04 07:33:06.991377+00","2026-10-04 07:33:06.991377+00")'::tstzrange) AND (status = 'CONFIRMED'::text))
+         Filter: (doctor_id = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'::uuid)
+         Rows Removed by Filter: 71142
+         Heap Blocks: exact=1654
+         Buffers: shared read=22806
+         ->  Bitmap Index Scan on appointments_patient_no_overlap  (cost=0.00..978.34 rows=17323 width=0) (actual time=263.768..263.769 rows=72011 loops=1)
+               Index Cond: (tstzrange(start_at, end_at, '[)'::text) && '["2026-09-04 07:33:06.991377+00","2026-10-04 07:33:06.991377+00")'::tstzrange)
+               Buffers: shared read=21152
+ Planning:
+   Buffers: shared hit=9 read=12
+ Planning Time: 0.416 ms
+ Execution Time: 277.614 ms
+(17 rows)
+
+ROLLBACK
+
+--- (b) GiST gone, btree (doctor_id, start_at) still present -------------
+BEGIN
+ALTER TABLE
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=2720.03..2720.53 rows=198 width=16) (actual time=250.976..251.006 rows=869 loops=1)
+   Sort Key: start_at
+   Sort Method: quicksort  Memory: 58kB
+   Buffers: shared read=21388 written=3
+   ->  Bitmap Heap Scan on appointments  (cost=1961.19..2712.48 rows=198 width=16) (actual time=250.563..250.795 rows=869 loops=1)
+         Recheck Cond: ((tstzrange(start_at, end_at, '[)'::text) && '["2026-09-04 07:33:06.991377+00","2026-10-04 07:33:06.991377+00")'::tstzrange) AND (status = 'CONFIRMED'::text) AND (doctor_id = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'::uuid))
+         Heap Blocks: exact=19
+         Buffers: shared read=21388 written=3
+         ->  BitmapAnd  (cost=1961.19..1961.19 rows=198 width=0) (actual time=250.545..250.545 rows=0 loops=1)
+               Buffers: shared read=21369 written=3
+               ->  Bitmap Index Scan on appointments_patient_no_overlap  (cost=0.00..978.34 rows=17323 width=0) (actual time=249.141..249.141 rows=72011 loops=1)
+                     Index Cond: (tstzrange(start_at, end_at, '[)'::text) && '["2026-09-04 07:33:06.991377+00","2026-10-04 07:33:06.991377+00")'::tstzrange)
+                     Buffers: shared read=21152 written=3
+               ->  Bitmap Index Scan on appointments_doctor_start_at_idx  (cost=0.00..982.50 rows=23210 width=0) (actual time=1.311..1.311 rows=24386 loops=1)
+                     Index Cond: (doctor_id = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'::uuid)
+                     Buffers: shared read=217
+ Planning:
+   Buffers: shared hit=16 read=3 dirtied=1
+ Planning Time: 0.723 ms
+ Execution Time: 251.225 ms
+(20 rows)
+
+ROLLBACK
+
+--- (c) with the GiST index ----------------------------------------------
+                                                                                                                     QUERY PLAN                                                                                                                      
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Sort  (cost=777.29..777.78 rows=198 width=16) (actual time=0.453..0.483 rows=869 loops=1)
+   Sort Key: start_at
+   Sort Method: quicksort  Memory: 58kB
+   Buffers: shared hit=19 read=20
+   ->  Bitmap Heap Scan on appointments  (cost=18.44..769.74 rows=198 width=16) (actual time=0.210..0.340 rows=869 loops=1)
+         Recheck Cond: ((doctor_id = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'::uuid) AND (tstzrange(start_at, end_at, '[)'::text) && '["2026-09-04 07:33:06.991377+00","2026-10-04 07:33:06.991377+00")'::tstzrange) AND (status = 'CONFIRMED'::text))
+         Heap Blocks: exact=19
+         Buffers: shared hit=19 read=20
+         ->  Bitmap Index Scan on appointments_no_overlap  (cost=0.00..18.39 rows=198 width=0) (actual time=0.202..0.202 rows=869 loops=1)
+               Index Cond: ((doctor_id = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'::uuid) AND (tstzrange(start_at, end_at, '[)'::text) && '["2026-09-04 07:33:06.991377+00","2026-10-04 07:33:06.991377+00")'::tstzrange))
+               Buffers: shared read=20
+ Planning:
+   Buffers: shared hit=16 read=2
+ Planning Time: 0.377 ms
+ Execution Time: 0.612 ms
+(15 rows)
+
+
+==========================================================================
+Q2  "List my appointments" and the cancel ownership check
+Index under test: appointments_patient_start_idx
+==========================================================================
+
+--- (a) no patient index at all ------------------------------------------
+BEGIN
+DROP INDEX
+ALTER TABLE
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=46589.07..46590.94 rows=16 width=58) (actual time=102.666..105.465 rows=39 loops=1)
+   Buffers: shared hit=88 read=35004
+   ->  Gather Merge  (cost=46589.07..46590.94 rows=16 width=58) (actual time=102.664..105.460 rows=39 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=88 read=35004
+         ->  Sort  (cost=45589.05..45589.07 rows=8 width=58) (actual time=64.568..64.570 rows=13 loops=3)
+               Sort Key: start_at DESC
+               Sort Method: quicksort  Memory: 28kB
+               Buffers: shared hit=88 read=35004
+               Worker 0:  Sort Method: quicksort  Memory: 25kB
+               Worker 1:  Sort Method: quicksort  Memory: 26kB
+               ->  Parallel Seq Scan on appointments  (cost=0.00..45588.93 rows=8 width=58) (actual time=5.084..61.304 rows=13 loops=3)
+                     Filter: (patient_id = '3668c3cb-9f46-4890-9384-6549b7001606'::uuid)
+                     Rows Removed by Filter: 676621
+                     Buffers: shared hit=19 read=34997
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.203 ms
+ Execution Time: 105.515 ms
+(20 rows)
+
+ROLLBACK
+
+--- (b) btree gone, only the patient GiST constraint index remains -------
+BEGIN
+DROP INDEX
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=46589.07..46590.94 rows=16 width=58) (actual time=67.408..70.238 rows=39 loops=1)
+   Buffers: shared hit=191 read=34901
+   ->  Gather Merge  (cost=46589.07..46590.94 rows=16 width=58) (actual time=67.406..70.234 rows=39 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=191 read=34901
+         ->  Sort  (cost=45589.05..45589.07 rows=8 width=58) (actual time=63.762..63.763 rows=13 loops=3)
+               Sort Key: start_at DESC
+               Sort Method: quicksort  Memory: 26kB
+               Buffers: shared hit=191 read=34901
+               Worker 0:  Sort Method: quicksort  Memory: 26kB
+               Worker 1:  Sort Method: quicksort  Memory: 26kB
+               ->  Parallel Seq Scan on appointments  (cost=0.00..45588.93 rows=8 width=58) (actual time=6.235..63.546 rows=13 loops=3)
+                     Filter: (patient_id = '3668c3cb-9f46-4890-9384-6549b7001606'::uuid)
+                     Rows Removed by Filter: 676621
+                     Buffers: shared hit=115 read=34901
+ Planning:
+   Buffers: shared hit=18
+ Planning Time: 0.289 ms
+ Execution Time: 70.309 ms
+(20 rows)
+
+ROLLBACK
+
+--- (c) with the btree index ---------------------------------------------
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.43..76.74 rows=18 width=58) (actual time=0.039..0.182 rows=39 loops=1)
+   Buffers: shared hit=1 read=42
+   ->  Index Scan Backward using appointments_patient_start_idx on appointments  (cost=0.43..76.74 rows=18 width=58) (actual time=0.038..0.178 rows=39 loops=1)
+         Index Cond: (patient_id = '3668c3cb-9f46-4890-9384-6549b7001606'::uuid)
+         Buffers: shared hit=1 read=42
+ Planning:
+   Buffers: shared hit=18 read=1
+ Planning Time: 0.381 ms
+ Execution Time: 0.208 ms
+(9 rows)
+
+
+==========================================================================
+Q3  Monthly analytics aggregate for one doctor
+Index under test: appointments_doctor_start_at_idx (all statuses)
+==========================================================================
+
+--- (a) without the index ------------------------------------------------
+BEGIN
+DROP INDEX
+                                                                                                            QUERY PLAN                                                                                                             
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Finalize Aggregate  (cost=50827.23..50827.24 rows=1 width=48) (actual time=67.977..70.956 rows=1 loops=1)
+   Buffers: shared hit=250 read=34766
+   ->  Gather  (cost=50827.00..50827.21 rows=2 width=48) (actual time=67.764..70.942 rows=3 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=250 read=34766
+         ->  Partial Aggregate  (cost=49827.00..49827.01 rows=1 width=48) (actual time=62.512..62.513 rows=1 loops=3)
+               Buffers: shared hit=250 read=34766
+               ->  Parallel Seq Scan on appointments  (cost=0.00..49818.10 rows=445 width=26) (actual time=42.691..62.376 rows=385 loops=3)
+                     Filter: ((start_at >= '2026-11-30 22:00:00+00'::timestamp with time zone) AND (start_at < '2026-12-31 22:00:00+00'::timestamp with time zone) AND (doctor_id = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'::uuid))
+                     Rows Removed by Filter: 676249
+                     Buffers: shared hit=250 read=34766
+ Planning:
+   Buffers: shared hit=22 read=6
+ Planning Time: 0.483 ms
+ Execution Time: 71.038 ms
+(16 rows)
+
+ROLLBACK
+
+--- (b) with the index ---------------------------------------------------
+                                                                                                           QUERY PLAN                                                                                                            
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=3758.34..3758.35 rows=1 width=48) (actual time=0.670..0.670 rows=1 loops=1)
+   Buffers: shared hit=12 read=22
+   ->  Bitmap Heap Scan on appointments  (cost=54.06..3736.95 rows=1069 width=26) (actual time=0.125..0.274 rows=1156 loops=1)
+         Recheck Cond: ((doctor_id = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'::uuid) AND (start_at >= '2026-11-30 22:00:00+00'::timestamp with time zone) AND (start_at < '2026-12-31 22:00:00+00'::timestamp with time zone))
+         Heap Blocks: exact=21
+         Buffers: shared hit=12 read=22
+         ->  Bitmap Index Scan on appointments_doctor_start_at_idx  (cost=0.00..53.79 rows=1069 width=0) (actual time=0.113..0.114 rows=1156 loops=1)
+               Index Cond: ((doctor_id = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'::uuid) AND (start_at >= '2026-11-30 22:00:00+00'::timestamp with time zone) AND (start_at < '2026-12-31 22:00:00+00'::timestamp with time zone))
+               Buffers: shared hit=12 read=1
+ Planning:
+   Buffers: shared hit=18 read=1
+ Planning Time: 0.449 ms
+ Execution Time: 0.747 ms
+(13 rows)
+
+
+==========================================================================
+Q4  Blocked periods overlapping an availability window
+Index under test: blocks_doctor_id_start_at_end_at_idx
+NOTE: blocks is a small table. A sequential scan winning here is the
+      planner being correct, not the index being wrong. Record what
+      actually happens.
+NOTE: blocks_no_overlap leaves a GiST index on (doctor_id, tstzrange).
+      The (a) block drops only the btree, so (a) may still show an index
+      scan on the constraint index for the doctor_id equality. That is
+      a real result, not a broken measurement.
+==========================================================================
+ total_blocks |  size   
+--------------+---------
+         4153 | 1304 kB
+(1 row)
+
+
+--- (a) without the index ------------------------------------------------
+BEGIN
+DROP INDEX
+                                                                         QUERY PLAN                                                                          
+-------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on blocks  (cost=4.31..43.61 rows=4 width=25) (actual time=0.042..0.043 rows=2 loops=1)
+   Recheck Cond: (doctor_id = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'::uuid)
+   Filter: ((start_at < '2026-10-04 07:33:06.991377+00'::timestamp with time zone) AND (end_at > '2026-09-04 07:33:06.991377+00'::timestamp with time zone))
+   Rows Removed by Filter: 19
+   Heap Blocks: exact=1
+   Buffers: shared hit=1 read=3
+   ->  Bitmap Index Scan on blocks_no_overlap  (cost=0.00..4.30 rows=21 width=0) (actual time=0.033..0.033 rows=21 loops=1)
+         Index Cond: (doctor_id = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'::uuid)
+         Buffers: shared read=3
+ Planning:
+   Buffers: shared hit=10 read=3
+ Planning Time: 0.330 ms
+ Execution Time: 0.122 ms
+(13 rows)
+
+ROLLBACK
+
+--- (b) with the index ---------------------------------------------------
+                                                                                                              QUERY PLAN                                                                                                              
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Bitmap Heap Scan on blocks  (cost=4.48..17.09 rows=4 width=25) (actual time=0.022..0.023 rows=2 loops=1)
+   Recheck Cond: ((doctor_id = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'::uuid) AND (start_at < '2026-10-04 07:33:06.991377+00'::timestamp with time zone) AND (end_at > '2026-09-04 07:33:06.991377+00'::timestamp with time zone))
+   Heap Blocks: exact=1
+   Buffers: shared hit=1 read=2
+   ->  Bitmap Index Scan on blocks_doctor_id_start_at_end_at_idx  (cost=0.00..4.48 rows=4 width=0) (actual time=0.018..0.018 rows=2 loops=1)
+         Index Cond: ((doctor_id = '7c11aa55-fc25-43b1-9f5e-73c8fdb08569'::uuid) AND (start_at < '2026-10-04 07:33:06.991377+00'::timestamp with time zone) AND (end_at > '2026-09-04 07:33:06.991377+00'::timestamp with time zone))
+         Buffers: shared read=2
+ Planning:
+   Buffers: shared hit=22
+ Planning Time: 0.293 ms
+ Execution Time: 0.054 ms
+(11 rows)
+
+
+==========================================================================
+Q5  Assignment job: waiting entries for a freed slot, FIFO
+Index under test: waiting_list_slot_status_idx
+==========================================================================
+
+--- (a) without the index ------------------------------------------------
+BEGIN
+DROP INDEX
+                                                                           QUERY PLAN                                                                            
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=18.96..18.96 rows=1 width=40) (actual time=0.091..0.092 rows=5 loops=1)
+   Buffers: shared read=9
+   ->  Sort  (cost=18.96..18.96 rows=1 width=40) (actual time=0.090..0.090 rows=5 loops=1)
+         Sort Key: created_at
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared read=9
+         ->  Index Scan using waiting_list_one_active on waiting_list  (cost=0.41..18.95 rows=1 width=40) (actual time=0.058..0.074 rows=5 loops=1)
+               Index Cond: ((doctor_id = '10d56a5f-81cf-4b04-9ba9-67cc4377dd0d'::uuid) AND (slot_start_at = '2026-09-06 07:45:00+00'::timestamp with time zone))
+               Buffers: shared read=9
+ Planning:
+   Buffers: shared hit=6 read=1
+ Planning Time: 0.271 ms
+ Execution Time: 0.120 ms
+(13 rows)
+
+ROLLBACK
+
+--- (b) with the index ---------------------------------------------------
+                                                                                           QUERY PLAN                                                                                           
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=8.45..8.45 rows=1 width=40) (actual time=0.052..0.053 rows=5 loops=1)
+   Buffers: shared hit=5 read=3
+   ->  Sort  (cost=8.45..8.45 rows=1 width=40) (actual time=0.051..0.052 rows=5 loops=1)
+         Sort Key: created_at
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=5 read=3
+         ->  Index Scan using waiting_list_slot_status_idx on waiting_list  (cost=0.41..8.44 rows=1 width=40) (actual time=0.031..0.035 rows=5 loops=1)
+               Index Cond: ((doctor_id = '10d56a5f-81cf-4b04-9ba9-67cc4377dd0d'::uuid) AND (slot_start_at = '2026-09-06 07:45:00+00'::timestamp with time zone) AND (status = 'WAITING'::text))
+               Buffers: shared hit=5 read=3
+ Planning:
+   Buffers: shared hit=21 read=1
+ Planning Time: 0.379 ms
+ Execution Time: 0.084 ms
+(13 rows)
+
+
+==========================================================================
+Q6  "Am I already in this queue?"
+Index under test: waiting_list_one_active (unique, partial on WAITING)
+==========================================================================
+
+--- (a) without the index ------------------------------------------------
+BEGIN
+DROP INDEX
+DROP INDEX
+                                                                                                                   QUERY PLAN                                                                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Seq Scan on waiting_list  (cost=0.00..2176.00 rows=1 width=16) (actual time=5.506..6.737 rows=1 loops=1)
+   Filter: ((doctor_id = '10d56a5f-81cf-4b04-9ba9-67cc4377dd0d'::uuid) AND (patient_id = 'a07b1223-4137-488f-9a32-fa532fb83e18'::uuid) AND (slot_start_at = '2026-09-06 07:45:00+00'::timestamp with time zone) AND (status = 'WAITING'::text))
+   Rows Removed by Filter: 59999
+   Buffers: shared hit=5 read=971
+ Planning:
+   Buffers: shared hit=4
+ Planning Time: 0.162 ms
+ Execution Time: 6.753 ms
+(8 rows)
+
+ROLLBACK
+
+--- (b) with the index ---------------------------------------------------
+                                                                                                     QUERY PLAN                                                                                                      
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using waiting_list_one_active on waiting_list  (cost=0.41..8.44 rows=1 width=16) (actual time=0.023..0.024 rows=1 loops=1)
+   Index Cond: ((doctor_id = '10d56a5f-81cf-4b04-9ba9-67cc4377dd0d'::uuid) AND (patient_id = 'a07b1223-4137-488f-9a32-fa532fb83e18'::uuid) AND (slot_start_at = '2026-09-06 07:45:00+00'::timestamp with time zone))
+   Buffers: shared hit=4
+ Planning:
+   Buffers: shared hit=39 read=1
+ Planning Time: 1.164 ms
+ Execution Time: 0.047 ms
+(7 rows)
+
+
+==========================================================================
+Q7  Job idempotency: have we already handled this appointment?
+Index under test: notifications_unique_per_type
+==========================================================================
+
+--- (a) without the index ------------------------------------------------
+BEGIN
+ALTER TABLE
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Gather  (cost=1000.00..43770.44 rows=1 width=30) (actual time=6.341..65.256 rows=1 loops=1)
+   Workers Planned: 2
+   Workers Launched: 2
+   Buffers: shared read=29760
+   ->  Parallel Seq Scan on notifications  (cost=0.00..42770.34 rows=1 width=30) (actual time=40.101..58.775 rows=0 loops=3)
+         Filter: ((appointment_id = 'f48908b6-0947-47a5-aea4-0369e9e27757'::uuid) AND (type = 'REMINDER'::text))
+         Rows Removed by Filter: 693884
+         Buffers: shared read=29760
+ Planning:
+   Buffers: shared hit=39 read=4
+ Planning Time: 0.432 ms
+ Execution Time: 65.274 ms
+(12 rows)
+
+ROLLBACK
+
+--- (b) with the index ---------------------------------------------------
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using notifications_unique_per_type on notifications  (cost=0.43..8.45 rows=1 width=30) (actual time=0.040..0.040 rows=1 loops=1)
+   Index Cond: ((appointment_id = 'f48908b6-0947-47a5-aea4-0369e9e27757'::uuid) AND (type = 'REMINDER'::text))
+   Buffers: shared read=4
+ Planning:
+   Buffers: shared hit=18 read=1
+ Planning Time: 0.360 ms
+ Execution Time: 0.061 ms
+(7 rows)
+
+
+==========================================================================
+Q8  Reconciliation sweeper: due but unsent notifications
+Index under test: notifications_pending_due_idx (partial on PENDING)
+==========================================================================
+ status  |  count  
+---------+---------
+ SENT    | 1265819
+ PENDING |  815835
+(2 rows)
+
+
+--- (a) without the index ------------------------------------------------
+BEGIN
+DROP INDEX
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=54787.09..54798.76 rows=100 width=40) (actual time=113.075..116.581 rows=100 loops=1)
+   Buffers: shared hit=269 read=29567
+   ->  Gather Merge  (cost=54787.09..108811.03 rows=463030 width=40) (actual time=113.074..116.570 rows=100 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=269 read=29567
+         ->  Sort  (cost=53787.06..54365.85 rows=231515 width=40) (actual time=108.550..108.556 rows=79 loops=3)
+               Sort Key: scheduled_at
+               Sort Method: top-N heapsort  Memory: 32kB
+               Buffers: shared hit=269 read=29567
+               Worker 0:  Sort Method: top-N heapsort  Memory: 32kB
+               Worker 1:  Sort Method: top-N heapsort  Memory: 36kB
+               ->  Parallel Seq Scan on notifications  (cost=0.00..44938.73 rows=231515 width=40) (actual time=0.093..99.840 rows=59573 loops=3)
+                     Filter: ((status = 'PENDING'::text) AND (scheduled_at <= now()))
+                     Rows Removed by Filter: 634312
+                     Buffers: shared hit=193 read=29567
+ Planning:
+   Buffers: shared hit=9 read=1
+ Planning Time: 0.386 ms
+ Execution Time: 116.638 ms
+(20 rows)
+
+ROLLBACK
+
+--- (b) with the index ---------------------------------------------------
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.43..24.08 rows=100 width=40) (actual time=0.051..0.318 rows=100 loops=1)
+   Buffers: shared hit=31 read=72
+   ->  Index Scan using notifications_pending_due_idx on notifications  (cost=0.43..131422.49 rows=555636 width=40) (actual time=0.050..0.309 rows=100 loops=1)
+         Index Cond: (scheduled_at <= now())
+         Buffers: shared hit=31 read=72
+ Planning:
+   Buffers: shared hit=16
+ Planning Time: 0.497 ms
+ Execution Time: 0.411 ms
+(9 rows)
+
+
+=========================== end of evidence ==============================

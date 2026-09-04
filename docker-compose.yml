@@ -9,6 +9,7 @@ services:
       - '${POSTGRES_PORT}:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./clinic_appointment_booking/scripts/perf:/perf:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
       interval: 5s
@@ -118,6 +119,23 @@ services:
     depends_on:
       api:
         condition: service_healthy
+
+  seed:
+    build:
+      context: ./clinic_appointment_booking
+      target: migrate
+    profiles: ['seed']
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://clinic:clinic@postgres:5432/clinic
+      CLINIC_TZ: ${CLINIC_TZ}
+    command: ['npm', 'run', 'seed:reset']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: 'no'
 
 volumes:
   pgdata:
