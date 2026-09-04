@@ -1,0 +1,729 @@
+{
+  "info": {
+    "_postman_id": "cfbb54f7-1223-465b-aabe-183b7c23d56b",
+    "name": "Clinic Appointment Booking",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "52392327",
+    "_collection_link": "https://go.postman.co/collection/52392327-cfbb54f7-1223-465b-aabe-183b7c23d56b?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "Register New Patient",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"firstName\": \"Ahmed\",\r\n  \"lastName\": \"Hossam\",\r\n  \"email\": \"ahosam@example.com\",\r\n  \"password\": \"Password123!\",\r\n  \"phoneNumber\": \"+201001234567\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Admin Login",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"email\": \"{{adminEmail}}\", \"password\": \"{{adminPassword}}\" }",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Patient Login",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"email\": \"ahosam@example.com\",\r\n  \"password\": \"{{globalPassword}}\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Doctor Login",
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"email\": \"doctor76@clinic.test\",\r\n  \"password\": \"{{globalPassword}}\"\r\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Register Doctor",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5NjExZDc3Ny02ZDE0LTQ3NzItOGYzZS03YjY5MzZlMWM3YjQiLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3ODg1MjAzNTQsImV4cCI6MTc4ODYwNjc1NH0.7V5nHMLmRnoBy2PB3prNlVARPWZzAXTsgVhARhwGa84",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"firstName\": \"Nour\",\r\n  \"lastName\": \"Saleh\",\r\n  \"email\": \"nour.saleh@clinic.test\",\r\n  \"password\": \"Password123!\",\r\n  \"specialization\": \"Cardiology\",\r\n  \"achievements\": \"10 years of practice\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/doctors",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "doctors"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get All Doctors",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": ""
+        },
+        "url": {
+          "raw": "{{baseUrl}}/doctors",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "doctors"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Doctor by ID",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": ""
+        },
+        "url": {
+          "raw": "{{baseUrl}}/doctors/{{doctorId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "doctors",
+            "{{doctorId}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Weekly schedule and slot duration",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{doctorToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"dayOfWeek\": 1,\r\n  \"startTime\": \"10:00\",\r\n  \"endTime\": \"16:00\",\r\n  \"slotDurationMinutes\": 15\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/doctors/{{doctorId}}/schedules",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "doctors",
+            "{{doctorId}}",
+            "schedules"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List Doctor Schedule",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{doctor1Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/doctors/{{doctor1Id}}/schedules",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "doctors",
+            "{{doctor1Id}}",
+            "schedules"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Blocking Periods",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{doctorToken}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"startAt\": \"2026-09-06T07:00:00Z\",\r\n  \"endAt\": \"2026-09-06T09:00:00Z\",\r\n  \"reason\": \"hospital case\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/doctors/{{doctorId}}/blocks",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "doctors",
+            "{{doctorId}}",
+            "blocks"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Availability",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{patient1Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/doctors/{{doctor1Id}}/availability?from=2026-09-06&to=2026-09-06",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "doctors",
+            "{{doctor1Id}}",
+            "availability"
+          ],
+          "query": [
+            {
+              "key": "from",
+              "value": "2026-09-06"
+            },
+            {
+              "key": "to",
+              "value": "2026-09-06"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Booking",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{patient2Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"doctorId\": \"{{doctor1Id}}\",\r\n  \"startAt\": \"2026-09-06T09:30:00Z\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/appointments",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "appointments"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get My Appointments",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{patient1Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/appointments/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "appointments",
+            "me"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Doctor's Appointments",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{doctor1Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/doctors/{{doctor1Id}}/appointments",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "doctors",
+            "{{doctor1Id}}",
+            "appointments"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Cancelation",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{patient1Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/appointments/0faacd4e-ecb8-4709-b89e-95c44802f7bb/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "appointments",
+            "0faacd4e-ecb8-4709-b89e-95c44802f7bb",
+            "cancel"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Add to Waiting List",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{patient2Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"doctorId\": \"{{doctor1Id}}\",\r\n  \"slotStartAt\": \"2026-09-06T09:30:00Z\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/waiting-list",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "waiting-list"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Waiting List",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{patient2Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/waiting-list/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "waiting-list",
+            "me"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Doctor Analytics",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{doctor1Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/doctors/{{doctor1Id}}/analytics?year=2026&month=9",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "doctors",
+            "{{doctor1Id}}",
+            "analytics"
+          ],
+          "query": [
+            {
+              "key": "year",
+              "value": "2026"
+            },
+            {
+              "key": "month",
+              "value": "9"
+            }
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": ""
+    },
+    {
+      "key": "adminEmail",
+      "value": ""
+    },
+    {
+      "key": "globalPassword",
+      "value": ""
+    },
+    {
+      "key": "doctor1Id",
+      "value": ""
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "doctor1Token",
+      "value": ""
+    },
+    {
+      "key": "patient1Token",
+      "value": ""
+    },
+    {
+      "key": "patien1tId",
+      "value": ""
+    },
+    {
+      "key": "sceduleId",
+      "value": ""
+    },
+    {
+      "key": "appointmentId",
+      "value": ""
+    },
+    {
+      "key": "doctor2Id",
+      "value": ""
+    },
+    {
+      "key": "doctor2Token",
+      "value": ""
+    },
+    {
+      "key": "patient2Id",
+      "value": ""
+    },
+    {
+      "key": "patient2Token",
+      "value": ""
+    }
+  ]
+}

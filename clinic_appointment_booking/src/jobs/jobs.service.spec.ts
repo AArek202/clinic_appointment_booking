@@ -7,6 +7,7 @@ import {
   JOB_SEND_REMINDER,
   QUEUE_REMINDERS,
   QUEUE_WAITING_LIST,
+  sweepWaitlistJobId,
 } from './queue.constants';
 
 const NOW = new Date('2026-10-01T09:00:00.000Z');
@@ -65,6 +66,17 @@ describe('JobsService', () => {
       JOB_PROCESS_SLOT,
       { doctorId: 'doc-1', slotStartAtIso: '2026-10-01T11:00:00.000Z' },
       { jobId: 'waitlist:doc-1:2026-10-01T11:00:00.000Z' },
+    );
+  });
+
+  it('enqueues a stranded slot with a sweep id, not the cancel-path id', async () => {
+    const slotStartAt = new Date('2026-10-01T11:00:00.000Z');
+    await service.enqueueStrandedSlotProcessing('doc-1', slotStartAt, NOW);
+
+    expect(waitingList.add).toHaveBeenCalledWith(
+      JOB_PROCESS_SLOT,
+      { doctorId: 'doc-1', slotStartAtIso: '2026-10-01T11:00:00.000Z' },
+      { jobId: sweepWaitlistJobId('doc-1', slotStartAt, NOW) },
     );
   });
 
