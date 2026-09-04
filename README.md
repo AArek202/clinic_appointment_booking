@@ -739,7 +739,3 @@ constraints, cancellation, the concurrency proof, and a honest README. I would
 cut the full-scale seed, the annotated `EXPLAIN` appendix, and probably the
 waiting-list sweeper polish — those are what the assistant made cheap enough to
 keep.
-
----
-
-## Screen recording
